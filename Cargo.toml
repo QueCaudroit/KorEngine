@@ -1,0 +1,18 @@
+[package]
+name = "musogame"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bytemuck = "1.8.0"
+cordic = "0.1"
+fixed = "1.15"
+fixed-macro = "1.1"
+image = "0.24"
+nalgebra = "0.31"
+vulkano = "0.29.0"
+vulkano-shaders = "0.29.0"
+vulkano-win = "0.29.0"
+winit = "0.26"
