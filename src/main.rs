@@ -3,10 +3,12 @@ use na::{Point2, Rotation2};
 use std::sync::Arc;
 use std::time::Instant;
 
+use crate::shaders::{fs, vs};
 use bytemuck::{Pod, Zeroable};
 use fixed::consts::TAU;
 use fixed::types::I32F32;
 use fixed_macro::fixed;
+use image::io::Reader as ImageReader;
 use vulkano::buffer::{BufferUsage, ImmutableBuffer, TypedBufferAccess};
 use vulkano::command_buffer::{
     AutoCommandBufferBuilder, CommandBufferUsage, PrimaryAutoCommandBuffer, SubpassContents,
@@ -30,9 +32,7 @@ use vulkano::sync::{self, FenceSignalFuture, FlushError, GpuFuture};
 use vulkano_win::VkSurfaceBuild;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
-use winit::window::{Window, WindowBuilder};
-
-use crate::shaders::{fs, vs};
+use winit::window::{Fullscreen, Icon, Window, WindowBuilder};
 
 pub mod shaders;
 
@@ -158,7 +158,6 @@ fn get_command_buffer(
     Arc::new(builder.build().unwrap())
 }
 
-
 fn get_rectangle(angle: &I32F32) -> (Vertex, Vertex, Vertex, Vertex) {
     let rotation: Rotation2<f32> = Rotation2::new(angle.to_num());
     let point0 = rotation * Point2::new(-0.5, -0.3);
@@ -185,6 +184,18 @@ fn get_rectangle(angle: &I32F32) -> (Vertex, Vertex, Vertex, Vertex) {
     );
 }
 
+fn get_logo() -> Option<Icon> {
+    if let Ok(image_file) = ImageReader::open("musogame_icon.png") {
+        if let Ok(decoded_image) = image_file.decode() {
+            let formatted_image = decoded_image.into_rgba8();
+            let (width, height) = (formatted_image.width(), formatted_image.height());
+            if let Ok(icon) = Icon::from_rgba(formatted_image.into_vec(), width, height) {
+                return Some(icon);
+            }
+        }
+    }
+    return None;
+}
 fn main() {
     let tau = I32F32::from_num(TAU);
 
@@ -196,6 +207,9 @@ fn main() {
     .expect("failed to create instance");
     let event_loop = EventLoop::new();
     let surface = WindowBuilder::new()
+        .with_title("Musogame TODO")
+        .with_fullscreen(Some(Fullscreen::Borderless(None)))
+        .with_window_icon(get_logo())
         .build_vk_surface(&event_loop, instance.clone())
         .unwrap();
     let device_extensions = DeviceExtensions {
@@ -397,8 +411,8 @@ fn main() {
                 queue.clone(),
             )
             .unwrap();
-    let indices: Vec<u32> = vec![0, 1, 2, 2, 3, 0];
-    let (index_buffer, index_buffer_ready) = ImmutableBuffer::from_iter(
+            let indices: Vec<u32> = vec![0, 1, 2, 2, 3, 0];
+            let (index_buffer, index_buffer_ready) = ImmutableBuffer::from_iter(
                 indices.into_iter(),
                 BufferUsage::index_buffer(),
                 queue.clone(),
