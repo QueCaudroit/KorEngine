@@ -21,7 +21,8 @@ impl Camera {
         let rotation_y = get_rotation_y(-angle_y);
         let rotation_x = get_rotation_x(-angle_x);
         let view = matrix_mult(rotation_x, matrix_mult(rotation_y, translation));
-        return matrix_mult(perspective, view);
+        let view_proj = matrix_mult(perspective, view);
+        return matrix_transpose(view_proj);
     }
 }
 
@@ -35,7 +36,7 @@ fn look_at_from(target: [f32; 3], origin: [f32; 3]) -> (f32, f32) {
 
 fn look_at(target: [f32; 3]) -> (f32, f32) {
     let angle_y = target[0].atan2(target[2]);
-    let angle_x = -target[0].hypot(target[2]).atan2(target[1]);
+    let angle_x = -target[1].atan2(target[0].hypot(target[2]));
     return (angle_x, angle_y);
 }
 
@@ -86,12 +87,22 @@ fn get_rotation_z(angle: f32) -> [[f32; 4]; 4] {
     ];
 }
 
+fn matrix_transpose(a: [[f32; 4]; 4]) -> [[f32; 4]; 4] {
+    let result = [
+        [a[0][0], a[1][0], a[2][0], a[3][0]],
+        [a[0][1], a[1][1], a[2][1], a[3][1]],
+        [a[0][2], a[1][2], a[2][2], a[3][2]],
+        [a[0][3], a[1][3], a[2][3], a[3][3]],
+    ];
+    return result
+}
+
 fn get_perspective(fov: f32, aspect: f32, near: f32, far: f32) -> [[f32; 4]; 4] {
     let fov_coeff = (fov / 2.0).tan();
     let perspective_coeff = far / (far - near);
     return [
         [fov_coeff / aspect, 0.0, 0.0, 0.0],
-        [0.0, fov_coeff, 0.0, 0.0],
+        [0.0, -fov_coeff, 0.0, 0.0],
         [0.0, 0.0, perspective_coeff, -near * perspective_coeff],
         [0.0, 0.0, 1.0, 0.0],
     ];

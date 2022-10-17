@@ -134,8 +134,8 @@ fn main() {
         CpuBufferPool::<vs::ty::UniformBufferObject>::uniform_buffer(device.clone());
 
     let camera = Camera {
-        position: [0.0, -10.0, -5.0],
-        look_at: [0.0, 0.0, 0.0],
+        position: [1.0, 1.0, 5.0],
+        look_at: [1.0, 1.0, 0.0],
         aspect_ratio: 16.0 / 9.0,
         field_of_view: 3.14 / 2.0,
         near_clipping_plane: 0.1,
