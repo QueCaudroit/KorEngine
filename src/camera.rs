@@ -20,9 +20,9 @@ impl Camera {
             get_translation([-self.position[0], -self.position[1], -self.position[2]]);
         let rotation_y = get_rotation_y(-angle_y);
         let rotation_x = get_rotation_x(-angle_x);
-        let view = matrix_mult(rotation_x, matrix_mult(rotation_y, translation));
-        let view_proj = matrix_mult(perspective, view);
-        return matrix_transpose(view_proj);
+        let view = matrix_mult(translation, matrix_mult(rotation_y, rotation_x));
+        let view_proj = matrix_mult(view, perspective);
+        return view_proj;
     }
 }
 
@@ -53,35 +53,35 @@ fn matrix_mult(a: [[f32; 4]; 4], b: [[f32; 4]; 4]) -> [[f32; 4]; 4] {
 
 fn get_translation(direction: [f32; 3]) -> [[f32; 4]; 4] {
     return [
-        [1.0, 0.0, 0.0, direction[0]],
-        [0.0, 1.0, 0.0, direction[1]],
-        [0.0, 0.0, 1.0, direction[2]],
-        [0.0, 0.0, 0.0, 1.0],
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [direction[0], direction[1], direction[2], 1.0],
     ];
 }
 
 fn get_rotation_x(angle: f32) -> [[f32; 4]; 4] {
     return [
         [1.0, 0.0, 0.0, 0.0],
-        [0.0, angle.cos(), -angle.sin(), 0.0],
-        [0.0, angle.sin(), angle.cos(), 0.0],
+        [0.0, angle.cos(), angle.sin(), 0.0],
+        [0.0, -angle.sin(), angle.cos(), 0.0],
         [0.0, 0.0, 0.0, 1.0],
     ];
 }
 
 pub fn get_rotation_y(angle: f32) -> [[f32; 4]; 4] {
     return [
-        [angle.cos(), 0.0, angle.sin(), 0.0],
+        [angle.cos(), 0.0, -angle.sin(), 0.0],
         [0.0, 1.0, 0.0, 0.0],
-        [-angle.sin(), 0.0, angle.cos(), 0.0],
+        [angle.sin(), 0.0, angle.cos(), 0.0],
         [0.0, 0.0, 0.0, 1.0],
     ];
 }
 
 fn get_rotation_z(angle: f32) -> [[f32; 4]; 4] {
     return [
-        [angle.cos(), -angle.sin(), 0.0, 0.0],
-        [angle.sin(), angle.cos(), 0.0, 0.0],
+        [angle.cos(), angle.sin(), 0.0, 0.0],
+        [-angle.sin(), angle.cos(), 0.0, 0.0],
         [0.0, 0.0, 1.0, 0.0],
         [0.0, 0.0, 0.0, 1.0],
     ];
@@ -103,7 +103,7 @@ fn get_perspective(fov: f32, aspect: f32, near: f32, far: f32) -> [[f32; 4]; 4] 
     return [
         [fov_coeff / aspect, 0.0, 0.0, 0.0],
         [0.0, fov_coeff, 0.0, 0.0],
-        [0.0, 0.0, perspective_coeff, -near * perspective_coeff],
-        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, perspective_coeff, 1.0],
+        [0.0, 0.0, -near * perspective_coeff, 0.0],
     ];
 }
