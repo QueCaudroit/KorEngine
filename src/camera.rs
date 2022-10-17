@@ -94,15 +94,15 @@ fn matrix_transpose(a: [[f32; 4]; 4]) -> [[f32; 4]; 4] {
         [a[0][2], a[1][2], a[2][2], a[3][2]],
         [a[0][3], a[1][3], a[2][3], a[3][3]],
     ];
-    return result
+    return result;
 }
 
 fn get_perspective(fov: f32, aspect: f32, near: f32, far: f32) -> [[f32; 4]; 4] {
-    let fov_coeff = (fov / 2.0).tan();
+    let fov_coeff = -(fov / 2.0).tan();
     let perspective_coeff = far / (far - near);
     return [
         [fov_coeff / aspect, 0.0, 0.0, 0.0],
-        [0.0, -fov_coeff, 0.0, 0.0],
+        [0.0, fov_coeff, 0.0, 0.0],
         [0.0, 0.0, perspective_coeff, -near * perspective_coeff],
         [0.0, 0.0, 1.0, 0.0],
     ];
