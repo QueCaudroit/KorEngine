@@ -1,3 +1,5 @@
+use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
+use vulkano::descriptor_set::allocator::StandardDescriptorSetAllocator;
 use vulkano::instance::{Instance, InstanceCreateInfo};
 use vulkano::VulkanLibrary;
 
@@ -21,7 +23,7 @@ use vulkano::pipeline::{GraphicsPipeline, Pipeline, PipelineBindPoint};
 use vulkano::render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass};
 use vulkano::shader::ShaderModule;
 use vulkano::swapchain::{
-    acquire_next_image, AcquireError, PresentInfo, Surface, Swapchain, SwapchainCreateInfo,
+    acquire_next_image, AcquireError, SwapchainPresentInfo, Surface, Swapchain, SwapchainCreateInfo,
     SwapchainCreationError,
 };
 use vulkano::sync::{self, FenceSignalFuture, FlushError, GpuFuture};
@@ -30,7 +32,7 @@ use bytemuck::{Pod, Zeroable};
 use vulkano::buffer::cpu_pool::CpuBufferPoolSubbuffer;
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 use vulkano::format::Format;
-use vulkano::memory::pool::StandardMemoryPool;
+use vulkano::memory::allocator::{StandardMemoryAllocator, MemoryAllocator};
 use vulkano::pipeline::graphics::depth_stencil::DepthStencilState;
 
 use vulkano_win::VkSurfaceBuild;
@@ -39,16 +41,24 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::{Fullscreen, Icon, Window, WindowBuilder};
 
 use crate::camera::Camera;
+use crate::geometry::{get_perspective, matrix_mult};
 use crate::shaders::{fs, vs};
 
 #[repr(C)]
 #[derive(Default, Copy, Clone, Zeroable, Pod)]
-pub struct Vertex3 {
+pub struct Position {
     pub position: [f32; 3],
-    pub color: [f32; 4],
 }
 
-vulkano::impl_vertex!(Vertex3, position, color);
+vulkano::impl_vertex!(Position, position);
+
+#[repr(C)]
+#[derive(Default, Copy, Clone, Zeroable, Pod)]
+pub struct Normal {
+    pub normal: [f32; 3],
+}
+
+vulkano::impl_vertex!(Normal, normal);
 
 pub enum GameSceneState {
     Continue,
@@ -59,12 +69,7 @@ pub enum GameSceneState {
 pub trait GameScene {
     fn update(&mut self) -> GameSceneState;
 
-    fn display(&self) -> (&Camera, Vec<Box<dyn Displayable>>);
-}
-
-pub trait Displayable {
-    fn display(&self, offset: u32) -> (Vec<Vertex3>, Vec<u32>);
-    fn get_position(&self) -> [[f32; 4]; 4];
+    fn display(&self) -> (&Camera, Vec<(&str, [[f32; 4]; 4])>);
 }
 
 pub fn run(gamescene: Box<dyn GameScene>) {
@@ -99,7 +104,7 @@ pub fn run(gamescene: Box<dyn GameScene>) {
     let caps = physical_device
         .surface_capabilities(&surface, Default::default())
         .expect("failed to get surface capabilities");
-    let dimensions = surface.window().inner_size();
+    let dimensions = surface.object().unwrap().downcast_ref::<Window>().unwrap().inner_size();
     let composite_alpha = caps.supported_composite_alpha.iter().next().unwrap();
     let image_format = Some(
         physical_device
@@ -119,7 +124,9 @@ pub fn run(gamescene: Box<dyn GameScene>) {
         },
     )
     .expect("failed to create device");
-
+    let memory_allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
+    let command_buffer_allocator = StandardCommandBufferAllocator::new(device.clone(), Default::default());
+    let descriptor_set_allocator = StandardDescriptorSetAllocator::new(device.clone());
     let queue = queues.next().unwrap();
 
     let (mut swapchain, images) = Swapchain::new(
@@ -145,13 +152,17 @@ pub fn run(gamescene: Box<dyn GameScene>) {
     let fs = fs::load(device.clone()).expect("failed to create shader module");
 
     let (mut pipeline, mut framebuffers) =
-        window_size_dependent_setup(device.clone(), &vs, &fs, &images, render_pass.clone());
+        window_size_dependent_setup(device.clone(), &memory_allocator, &vs, &fs, &images, render_pass.clone());
     let uniform_buffer =
-        CpuBufferPool::<vs::ty::UniformBufferObject>::uniform_buffer(device.clone());
+        CpuBufferPool::<vs::ty::UniformBufferObject>::uniform_buffer(memory_allocator.clone());
     let mut recreate_swapchain = false;
 
     let frames_in_flight = images.len();
     let mut fences: Vec<Option<Arc<FenceSignalFuture<_>>>> = vec![None; frames_in_flight];
+
+    let (gltf_document, gltf_buffers, gltf_images) = gltf::import("./Fox.glb").unwrap();
+
+
     let mut previous_fence_i = 0;
     let mut frame_count = 0;
     let mut start_time = Instant::now();
@@ -187,8 +198,7 @@ pub fn run(gamescene: Box<dyn GameScene>) {
 
             if recreate_swapchain {
                 recreate_swapchain = false;
-
-                let new_dimensions = surface.window().inner_size();
+                let new_dimensions = surface.object().unwrap().downcast_ref::<Window>().unwrap().inner_size();
                 if new_dimensions.width > 0 && new_dimensions.height > 0 {
                     let (new_swapchain, new_images) =
                         match swapchain.recreate(SwapchainCreateInfo {
@@ -202,6 +212,7 @@ pub fn run(gamescene: Box<dyn GameScene>) {
                     swapchain = new_swapchain;
                     (pipeline, framebuffers) = window_size_dependent_setup(
                         device.clone(),
+                        &memory_allocator,
                         &vs,
                         &fs,
                         &new_images,
@@ -212,7 +223,7 @@ pub fn run(gamescene: Box<dyn GameScene>) {
 
             let (image_i, suboptimal, acquire_future) =
                 match acquire_next_image(swapchain.clone(), None) {
-                    Ok(r) => r,
+                    Ok(r) => (r.0 as usize, r.1, r.2),
                     Err(AcquireError::OutOfDate) => {
                         recreate_swapchain = true;
                         return;
@@ -237,41 +248,64 @@ pub fn run(gamescene: Box<dyn GameScene>) {
                 Some(fence) => fence.boxed(),
             };
             let (camera, displayed_items) = gamescene.display();
-            let displayed_item = &displayed_items[0];
+            let (item_name, item_pos) = &displayed_items[0];
+            let projection = get_perspective(3.14 / 2.0, 16.0 / 9.0, 0.1, 100.0);
             let uniform_subbuffer = uniform_buffer
                 .from_data(vs::ty::UniformBufferObject {
-                    model: displayed_item.get_position(),
-                    view_proj: camera.get_view_projection_matrix(),
+                    model: *item_pos,
+                    view_proj: matrix_mult(camera.get_view(), projection),
+                    color: [0.8, 0.8, 0.8, 1.0],
+                    camera_position: [1.0, 0.0, 0.0]
                 })
                 .unwrap();
-            let (vertexes, indices) = displayed_item.display(0);
+            let mesh = gltf_document.meshes().find(|m| match m.name(){
+                Some(name) => name == *item_name,
+                None => false
+            }).unwrap();
+            let primitive = mesh.primitives().next().unwrap();
+            let reader = primitive.reader(|buffer| Some(&gltf_buffers[buffer.index()]));
 
             let vertex_buffer = CpuAccessibleBuffer::from_iter(
-                device.clone(),
+                &memory_allocator,
                 BufferUsage {
                     vertex_buffer: true,
                     ..BufferUsage::empty()
                 },
                 false,
-                vertexes.into_iter(),
+                reader.read_positions().unwrap().map(|p| Position { position: p }),
             )
             .unwrap();
-            let index_buffer = CpuAccessibleBuffer::from_iter(
-                device.clone(),
+            /*let normals_buffer = CpuAccessibleBuffer::from_iter(
+                &memory_allocator,
                 BufferUsage {
-                    index_buffer: true,
+                    vertex_buffer: true,
                     ..BufferUsage::empty()
                 },
                 false,
-                indices.into_iter(),
+                reader.read_normals().unwrap().map(|n| Normal{ normal: n }),
             )
-            .unwrap();
+            .unwrap();*/
+            let index_buffer = match reader.read_indices() {
+                Some(iter) => Some(CpuAccessibleBuffer::from_iter(
+                    &memory_allocator,
+                    BufferUsage {
+                        index_buffer: true,
+                        ..BufferUsage::empty()
+                    },
+                    false,
+                    iter.into_u32(),
+                )
+                .unwrap()),
+                None => None
+            };
             let command_buffer = get_command_buffer(
-                device.clone(),
+                &command_buffer_allocator,
+                &descriptor_set_allocator,
                 queue.clone(),
                 pipeline.clone(),
                 framebuffers[image_i].clone(),
                 vertex_buffer.clone(),
+                //normals_buffer.clone(),
                 index_buffer.clone(),
                 uniform_subbuffer.clone(),
             );
@@ -282,10 +316,7 @@ pub fn run(gamescene: Box<dyn GameScene>) {
                 .unwrap()
                 .then_swapchain_present(
                     queue.clone(),
-                    PresentInfo {
-                        index: image_i,
-                        ..PresentInfo::swapchain(swapchain.clone())
-                    },
+                    SwapchainPresentInfo::swapchain_image_index(swapchain.clone(), image_i as u32)
                 )
                 .then_signal_fence_and_flush();
 
@@ -308,7 +339,7 @@ pub fn run(gamescene: Box<dyn GameScene>) {
 
 fn select_physical_device(
     instance: &Arc<Instance>,
-    surface: Arc<Surface<Window>>,
+    surface: Arc<Surface>,
     device_extensions: &DeviceExtensions,
 ) -> (Arc<PhysicalDevice>, u32) {
     let (physical_device, queue_family) = instance
@@ -336,7 +367,7 @@ fn select_physical_device(
     (physical_device, queue_family)
 }
 
-fn get_render_pass(device: Arc<Device>, swapchain: Arc<Swapchain<Window>>) -> Arc<RenderPass> {
+fn get_render_pass(device: Arc<Device>, swapchain: Arc<Swapchain>) -> Arc<RenderPass> {
     vulkano::single_pass_renderpass!(
         device.clone(),
         attachments: {
@@ -362,25 +393,26 @@ fn get_render_pass(device: Arc<Device>, swapchain: Arc<Swapchain<Window>>) -> Ar
 }
 fn window_size_dependent_setup(
     device: Arc<Device>,
+    memory_allocator: &impl MemoryAllocator,
     vs: &ShaderModule,
     fs: &ShaderModule,
-    images: &[Arc<SwapchainImage<Window>>],
+    images: &[Arc<SwapchainImage>],
     render_pass: Arc<RenderPass>,
 ) -> (Arc<GraphicsPipeline>, Vec<Arc<Framebuffer>>) {
     let dimensions = images[0].dimensions().width_height();
-    let framebuffers = get_framebuffers(device.clone(), images, render_pass.clone(), &dimensions);
+    let framebuffers = get_framebuffers(memory_allocator.clone(), images, render_pass.clone(), &dimensions);
     let pipeline = get_pipeline(device, vs, fs, render_pass, &dimensions);
     return (pipeline, framebuffers);
 }
 
 fn get_framebuffers(
-    device: Arc<Device>,
-    images: &[Arc<SwapchainImage<Window>>],
+    memory_allocator: &impl MemoryAllocator,
+    images: &[Arc<SwapchainImage>],
     render_pass: Arc<RenderPass>,
     dimensions: &[u32; 2],
 ) -> Vec<Arc<Framebuffer>> {
     let depth_buffer = ImageView::new_default(
-        AttachmentImage::transient(device.clone(), dimensions.clone(), Format::D16_UNORM).unwrap(),
+        AttachmentImage::transient(memory_allocator, dimensions.clone(), Format::D16_UNORM).unwrap(),
     )
     .unwrap();
     images
@@ -407,7 +439,7 @@ fn get_pipeline(
     dimensions: &[u32; 2],
 ) -> Arc<GraphicsPipeline> {
     GraphicsPipeline::start()
-        .vertex_input_state(BuffersDefinition::new().vertex::<Vertex3>())
+        .vertex_input_state(BuffersDefinition::new().vertex::<Position>()/*.vertex::<Normal>()*/)
         .vertex_shader(vs.entry_point("main").unwrap(), ())
         .input_assembly_state(InputAssemblyState::new())
         .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([
@@ -425,24 +457,27 @@ fn get_pipeline(
 }
 
 fn get_command_buffer(
-    device: Arc<Device>,
+    command_buffer_allocator: &StandardCommandBufferAllocator,
+    descriptor_set_allocator: &StandardDescriptorSetAllocator,
     queue: Arc<Queue>,
     pipeline: Arc<GraphicsPipeline>,
     framebuffer: Arc<Framebuffer>,
-    vertex_buffer: Arc<CpuAccessibleBuffer<[Vertex3]>>,
-    index_buffer: Arc<CpuAccessibleBuffer<[u32]>>,
+    position_buffer: Arc<CpuAccessibleBuffer<[Position]>>,
+    //normal_buffer: Arc<CpuAccessibleBuffer<[Normal]>>,
+    index_buffer: Option<Arc<CpuAccessibleBuffer<[u32]>>>,
     uniform_buffer: Arc<
-        CpuBufferPoolSubbuffer<vs::ty::UniformBufferObject, Arc<StandardMemoryPool>>,
+        CpuBufferPoolSubbuffer<vs::ty::UniformBufferObject>,
     >,
 ) -> Arc<PrimaryAutoCommandBuffer> {
     let mut builder = AutoCommandBufferBuilder::primary(
-        device.clone(),
+        command_buffer_allocator,
         queue.queue_family_index(),
         CommandBufferUsage::OneTimeSubmit,
     )
     .unwrap();
     let layout = pipeline.layout().set_layouts().get(0).unwrap();
     let descriptor_set = PersistentDescriptorSet::new(
+        descriptor_set_allocator,
         layout.clone(),
         [WriteDescriptorSet::buffer(0, uniform_buffer)],
     )
@@ -463,12 +498,14 @@ fn get_command_buffer(
             0,
             descriptor_set,
         )
-        .bind_vertex_buffers(0, vertex_buffer.clone())
-        .bind_index_buffer(index_buffer.clone())
-        .draw_indexed(index_buffer.len() as u32, 1, 0, 0, 0)
-        .unwrap()
-        .end_render_pass()
-        .unwrap();
+        .bind_vertex_buffers(0, (position_buffer.clone()/*, normal_buffer.clone()*/));
+    if let Some(buffer) = index_buffer {
+        builder.bind_index_buffer(buffer.clone()).draw_indexed(buffer.len() as u32, 1, 0, 0, 0).unwrap();
+
+    } else {
+        builder.draw(position_buffer.len() as u32, 1, 0, 0).unwrap();
+    }
+    builder.end_render_pass().unwrap();
 
     Arc::new(builder.build().unwrap())
 }
