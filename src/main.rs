@@ -1,12 +1,12 @@
 use std::time::Instant;
 
 use crate::camera::Camera;
-use crate::geometry::{get_rotation_y, get_scale_uniform, matrix_mult};
 use crate::game::{run, GameScene, GameSceneState};
+use crate::geometry::{get_rotation_y, get_scale_uniform, matrix_mult};
 
 pub mod camera;
-pub mod geometry;
 pub mod game;
+pub mod geometry;
 pub mod shaders;
 
 struct Scene {
@@ -22,7 +22,7 @@ impl Scene {
             frequency: 0.1,
             start_time: Instant::now(),
             angle: 0.0,
-            camera: Camera::LookAt([1.0, 2.0, -5.0], [0.0, 0.0, 0.0])
+            camera: Camera::LookAt([1.0, 2.0, -5.0], [0.0, 0.0, 0.0]),
         };
     }
 }
@@ -35,7 +35,13 @@ impl GameScene for Scene {
     }
 
     fn display(&self) -> (&Camera, Vec<(&str, [[f32; 4]; 4])>) {
-        return (&self.camera, vec![("fox1",  matrix_mult(get_scale_uniform(0.02), get_rotation_y(self.angle)))]);
+        return (
+            &self.camera,
+            vec![(
+                "fox1",
+                matrix_mult(get_scale_uniform(0.02), get_rotation_y(self.angle)),
+            )],
+        );
     }
 }
 

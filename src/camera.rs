@@ -1,4 +1,4 @@
-use crate::geometry::{look_at_from, get_translation, get_rotation_y, get_rotation_x, matrix_mult};
+use crate::geometry::{get_rotation_x, get_rotation_y, get_translation, look_at_from, matrix_mult};
 
 pub enum Camera {
     LookAt([f32; 3], [f32; 3]),
@@ -14,8 +14,10 @@ impl Camera {
                 let rotation_y = get_rotation_y(-angle_y);
                 let rotation_x = get_rotation_x(-angle_x);
                 return matrix_mult(translation, matrix_mult(rotation_y, rotation_x));
-            },
-            &Camera::FromTransform(transform) => {return transform;}
+            }
+            &Camera::FromTransform(transform) => {
+                return transform;
+            }
         }
     }
 }
