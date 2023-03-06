@@ -7,6 +7,7 @@ use crate::geometry::{get_rotation_y, get_scale_uniform, matrix_mult};
 pub mod camera;
 pub mod game;
 pub mod geometry;
+pub mod logo;
 pub mod shaders;
 
 struct Scene {
@@ -38,8 +39,8 @@ impl GameScene for Scene {
         return (
             &self.camera,
             vec![(
-                "fox1",
-                matrix_mult(get_scale_uniform(0.02), get_rotation_y(self.angle)),
+                "Suzanne",
+                matrix_mult(get_scale_uniform(0.99), get_rotation_y(self.angle)),
             )],
         );
     }

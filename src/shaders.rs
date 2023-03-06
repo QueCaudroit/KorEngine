@@ -15,3 +15,10 @@ pub mod vs {
         }
     }
 }
+
+pub mod unindex_shader {
+    vulkano_shaders::shader! {
+        ty: "compute",
+        path: "src/shaders/unindex.glsl"
+    }
+}
