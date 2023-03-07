@@ -101,3 +101,7 @@ pub fn get_perspective(fov: f32, aspect: f32, near: f32, far: f32) -> [[f32; 4];
         [0.0, 0.0, -near * perspective_coeff, 0.0],
     ];
 }
+
+pub fn extract_translation(a: [[f32; 4]; 4]) -> [f32; 3] {
+    return [a[3][0], a[3][1], a[3][2]];
+}

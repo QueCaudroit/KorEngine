@@ -20,7 +20,7 @@ use vulkano::image::{AttachmentImage, ImageAccess, ImageUsage, SwapchainImage};
 use vulkano::pipeline::graphics::input_assembly::InputAssemblyState;
 use vulkano::pipeline::graphics::vertex_input::BuffersDefinition;
 use vulkano::pipeline::graphics::viewport::{Viewport, ViewportState};
-use vulkano::pipeline::{ComputePipeline, GraphicsPipeline, Pipeline, PipelineBindPoint};
+use vulkano::pipeline::{GraphicsPipeline, Pipeline, PipelineBindPoint};
 use vulkano::render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass};
 use vulkano::shader::ShaderModule;
 use vulkano::swapchain::{
@@ -42,7 +42,7 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::{Fullscreen, Window, WindowBuilder};
 
 use crate::camera::Camera;
-use crate::geometry::{get_perspective, matrix_mult};
+use crate::geometry::{extract_translation, get_perspective, get_reverse_transform, matrix_mult};
 use crate::load_gltf::load_gltf;
 use crate::logo::get_logo;
 use crate::shaders::{fs, normal_shader, unindex_shader, vs};
@@ -284,12 +284,15 @@ pub fn run(gamescene: Box<dyn GameScene>) {
             let (camera, displayed_items) = gamescene.display();
             let (_item_name, item_pos) = &displayed_items[0];
             let projection = get_perspective(3.14 / 2.0, 16.0 / 9.0, 0.1, 100.0);
+            let camera_view = camera.get_view();
+            let camera_position =
+                extract_translation(get_reverse_transform(matrix_mult(*item_pos, camera_view)));
             let uniform_subbuffer = uniform_buffer
                 .from_data(vs::ty::UniformBufferObject {
                     model: *item_pos,
-                    view_proj: matrix_mult(camera.get_view(), projection),
+                    view_proj: matrix_mult(camera_view, projection),
                     color: [0.8, 0.8, 0.8, 1.0],
-                    camera_position: [1.0, 0.0, 0.0],
+                    camera_position: camera_position,
                 })
                 .unwrap();
 
@@ -300,7 +303,7 @@ pub fn run(gamescene: Box<dyn GameScene>) {
                 pipeline.clone(),
                 framebuffers[image_i].clone(),
                 vertex_buffer.clone(),
-                //normals_buffer.clone(),
+                normal_buffer.clone(),
                 uniform_subbuffer.clone(),
             );
 
@@ -441,7 +444,9 @@ fn get_pipeline(
 ) -> Arc<GraphicsPipeline> {
     GraphicsPipeline::start()
         .vertex_input_state(
-            BuffersDefinition::new().vertex::<Position>(), /*.vertex::<Normal>()*/
+            BuffersDefinition::new()
+                .vertex::<Position>()
+                .vertex::<Normal>(),
         )
         .vertex_shader(vs.entry_point("main").unwrap(), ())
         .input_assembly_state(InputAssemblyState::new())
@@ -466,7 +471,7 @@ fn get_command_buffer(
     pipeline: Arc<GraphicsPipeline>,
     framebuffer: Arc<Framebuffer>,
     position_buffer: Arc<DeviceLocalBuffer<[Position]>>,
-    //normal_buffer: Arc<CpuAccessibleBuffer<[Normal]>>,
+    normal_buffer: Arc<DeviceLocalBuffer<[Normal]>>,
     uniform_buffer: Arc<CpuBufferPoolSubbuffer<vs::ty::UniformBufferObject>>,
 ) -> Arc<PrimaryAutoCommandBuffer> {
     let mut builder = AutoCommandBufferBuilder::primary(
@@ -498,7 +503,7 @@ fn get_command_buffer(
             0,
             descriptor_set,
         )
-        .bind_vertex_buffers(0, (position_buffer.clone()/*, normal_buffer.clone()*/))
+        .bind_vertex_buffers(0, (position_buffer.clone(), normal_buffer.clone()))
         .draw(position_buffer.len() as u32, 1, 0, 0)
         .unwrap();
     builder.end_render_pass().unwrap();
