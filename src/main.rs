@@ -7,6 +7,7 @@ use crate::geometry::{get_rotation_y, get_scale_uniform, matrix_mult};
 pub mod camera;
 pub mod game;
 pub mod geometry;
+pub mod load_gltf;
 pub mod logo;
 pub mod shaders;
 

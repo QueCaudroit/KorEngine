@@ -22,3 +22,10 @@ pub mod unindex_shader {
         path: "src/shaders/unindex.glsl"
     }
 }
+
+pub mod normal_shader {
+    vulkano_shaders::shader! {
+        ty: "compute",
+        path: "src/shaders/normal.glsl"
+    }
+}
