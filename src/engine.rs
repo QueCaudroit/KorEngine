@@ -24,7 +24,7 @@ use vulkano::pipeline::{GraphicsPipeline, Pipeline, PipelineBindPoint};
 use vulkano::render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass};
 use vulkano::shader::ShaderModule;
 use vulkano::swapchain::{
-    acquire_next_image, AcquireError, PresentMode, Surface, Swapchain, SwapchainCreateInfo,
+    acquire_next_image, AcquireError, Surface, Swapchain, SwapchainCreateInfo,
     SwapchainCreationError, SwapchainPresentInfo,
 };
 use vulkano::sync::{self, FenceSignalFuture, FlushError, GpuFuture};
@@ -45,7 +45,7 @@ use crate::camera::Camera;
 use crate::geometry::{extract_translation, get_perspective, get_reverse_transform, matrix_mult};
 use crate::load_gltf::{load_gltf, Asset};
 use crate::logo::get_logo;
-use crate::shaders::{basic_fragment_shader, normal_shader, unindex_shader, basic_vertex_shader};
+use crate::shaders::{basic_fragment_shader, basic_vertex_shader, normal_shader, unindex_shader};
 
 #[repr(C)]
 #[derive(Default, Copy, Clone, Zeroable, Pod, Debug)]
@@ -103,10 +103,6 @@ pub fn run(gamescene: Box<dyn GameScene>) {
         .unwrap();
     let (physical_device, queue_family_id) =
         select_physical_device(&instance, surface.clone(), &device_extensions);
-    println!(
-        "available modes: {:?}",
-        Vec::from_iter(physical_device.surface_present_modes(&surface).unwrap())
-    );
     let caps = physical_device
         .surface_capabilities(&surface, Default::default())
         .expect("failed to get surface capabilities");
@@ -156,7 +152,6 @@ pub fn run(gamescene: Box<dyn GameScene>) {
                 ..ImageUsage::empty()
             },
             composite_alpha,
-            present_mode: PresentMode::Immediate,
             ..Default::default()
         },
     )
@@ -164,8 +159,10 @@ pub fn run(gamescene: Box<dyn GameScene>) {
 
     let render_pass = get_render_pass(device.clone(), swapchain.clone());
 
-    let basic_vertex_shader = basic_vertex_shader::load(device.clone()).expect("failed to create shader module");
-    let basic_fragment_shader = basic_fragment_shader::load(device.clone()).expect("failed to create shader module");
+    let basic_vertex_shader =
+        basic_vertex_shader::load(device.clone()).expect("failed to create shader module");
+    let basic_fragment_shader =
+        basic_fragment_shader::load(device.clone()).expect("failed to create shader module");
     let unindex_shader =
         unindex_shader::load(device.clone()).expect("failed to create shader module");
     let normal_shader =
@@ -180,7 +177,9 @@ pub fn run(gamescene: Box<dyn GameScene>) {
     );
 
     let uniform_buffer =
-        CpuBufferPool::<basic_vertex_shader::ty::UniformBufferObject>::uniform_buffer(memory_allocator.clone());
+        CpuBufferPool::<basic_vertex_shader::ty::UniformBufferObject>::uniform_buffer(
+            memory_allocator.clone(),
+        );
     let mut recreate_swapchain = false;
 
     let frames_in_flight = images.len();
@@ -199,8 +198,6 @@ pub fn run(gamescene: Box<dyn GameScene>) {
     let mut frame_count = 0;
     let mut start_time = Instant::now();
 
-    let mut frame_time = Instant::now();
-    let mut display_frame_count = 0;
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent {
             event: WindowEvent::CloseRequested,
@@ -215,16 +212,6 @@ pub fn run(gamescene: Box<dyn GameScene>) {
             recreate_swapchain = true;
         }
         Event::MainEventsCleared => {
-            display_frame_count += 1;
-            if display_frame_count == 60 {
-                display_frame_count = 0;
-                let new_frame_time = Instant::now();
-                println!(
-                    "{} frame/s",
-                    60.0 / new_frame_time.duration_since(frame_time).as_secs_f64()
-                );
-                frame_time = Instant::now();
-            }
             let target_frame_count =
                 Instant::now().duration_since(start_time).as_millis() * 60 / 1000;
             let frame_delta = (target_frame_count - frame_count) as i128;
