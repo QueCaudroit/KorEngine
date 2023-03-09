@@ -1,8 +1,10 @@
 use std::time::Instant;
 
-use crate::camera::Camera;
-use crate::engine::{run, GameScene, GameSceneState};
-use crate::geometry::{get_rotation_y, get_scale_uniform, matrix_mult};
+use crate::{
+    camera::Camera,
+    engine::{run, GameScene, GameSceneState},
+    geometry::{get_rotation_y, get_scale_uniform, matrix_mult},
+};
 
 pub mod camera;
 pub mod engine;

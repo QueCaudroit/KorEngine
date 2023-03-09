@@ -1,51 +1,54 @@
-use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
-use vulkano::descriptor_set::allocator::StandardDescriptorSetAllocator;
-use vulkano::instance::{Instance, InstanceCreateInfo};
-use vulkano::VulkanLibrary;
-
-use std::sync::Arc;
-use std::time::Instant;
-use vulkano::device::physical::{PhysicalDevice, PhysicalDeviceType};
-use vulkano::device::{
-    Device, DeviceCreateInfo, DeviceExtensions, Features, Queue, QueueCreateInfo,
-};
-
-use vulkano::buffer::{CpuBufferPool, TypedBufferAccess};
-use vulkano::command_buffer::{
-    AutoCommandBufferBuilder, CommandBufferUsage, PrimaryAutoCommandBuffer, RenderPassBeginInfo,
-    SubpassContents,
-};
-use vulkano::image::view::ImageView;
-use vulkano::image::{AttachmentImage, ImageAccess, ImageUsage, SwapchainImage};
-use vulkano::pipeline::graphics::input_assembly::InputAssemblyState;
-use vulkano::pipeline::graphics::vertex_input::BuffersDefinition;
-use vulkano::pipeline::graphics::viewport::{Viewport, ViewportState};
-use vulkano::pipeline::{GraphicsPipeline, Pipeline, PipelineBindPoint};
-use vulkano::render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass};
-use vulkano::shader::ShaderModule;
-use vulkano::swapchain::{
-    acquire_next_image, AcquireError, Surface, Swapchain, SwapchainCreateInfo,
-    SwapchainCreationError, SwapchainPresentInfo,
-};
-use vulkano::sync::{self, FenceSignalFuture, FlushError, GpuFuture};
-
 use bytemuck::{Pod, Zeroable};
-use vulkano::buffer::cpu_pool::CpuBufferPoolSubbuffer;
-use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
-use vulkano::format::Format;
-use vulkano::memory::allocator::{MemoryAllocator, StandardMemoryAllocator};
-use vulkano::pipeline::graphics::depth_stencil::DepthStencilState;
-
+use std::{sync::Arc, time::Instant};
+use vulkano::{
+    buffer::{cpu_pool::CpuBufferPoolSubbuffer, CpuBufferPool, TypedBufferAccess},
+    command_buffer::{
+        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
+        PrimaryAutoCommandBuffer, RenderPassBeginInfo, SubpassContents,
+    },
+    descriptor_set::{
+        allocator::StandardDescriptorSetAllocator, PersistentDescriptorSet, WriteDescriptorSet,
+    },
+    device::{
+        physical::{PhysicalDevice, PhysicalDeviceType},
+        Device, DeviceCreateInfo, DeviceExtensions, Features, Queue, QueueCreateInfo,
+    },
+    format::Format,
+    image::{view::ImageView, AttachmentImage, ImageAccess, ImageUsage, SwapchainImage},
+    instance::{Instance, InstanceCreateInfo},
+    memory::allocator::{MemoryAllocator, StandardMemoryAllocator},
+    pipeline::{
+        graphics::{
+            depth_stencil::DepthStencilState,
+            input_assembly::InputAssemblyState,
+            vertex_input::BuffersDefinition,
+            viewport::{Viewport, ViewportState},
+        },
+        GraphicsPipeline, Pipeline, PipelineBindPoint,
+    },
+    render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
+    shader::ShaderModule,
+    swapchain::{
+        acquire_next_image, AcquireError, Surface, Swapchain, SwapchainCreateInfo,
+        SwapchainCreationError, SwapchainPresentInfo,
+    },
+    sync::{self, FenceSignalFuture, FlushError, GpuFuture},
+    VulkanLibrary,
+};
 use vulkano_win::VkSurfaceBuild;
-use winit::event::{Event, WindowEvent};
-use winit::event_loop::{ControlFlow, EventLoop};
-use winit::window::{Fullscreen, Window, WindowBuilder};
+use winit::{
+    event::{Event, WindowEvent},
+    event_loop::{ControlFlow, EventLoop},
+    window::{Fullscreen, Window, WindowBuilder},
+};
 
-use crate::camera::Camera;
-use crate::geometry::{extract_translation, get_perspective, get_reverse_transform, matrix_mult};
-use crate::load_gltf::{load_gltf, Asset};
-use crate::logo::get_logo;
-use crate::shaders::{basic_fragment_shader, basic_vertex_shader, normal_shader, unindex_shader};
+use crate::{
+    camera::Camera,
+    geometry::{extract_translation, get_perspective, get_reverse_transform, matrix_mult},
+    load_gltf::{load_gltf, Asset},
+    logo::get_logo,
+    shaders::{basic_fragment_shader, basic_vertex_shader, normal_shader, unindex_shader},
+};
 
 #[repr(C)]
 #[derive(Default, Copy, Clone, Zeroable, Pod, Debug)]

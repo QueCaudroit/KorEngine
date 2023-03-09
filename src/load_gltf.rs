@@ -1,12 +1,10 @@
 use std::sync::Arc;
 
-use crate::engine::{Normal, Position};
-use vulkano::command_buffer::CopyBufferInfo;
-use vulkano::sync::{self, GpuFuture};
 use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer, DeviceLocalBuffer, TypedBufferAccess},
     command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
+        CopyBufferInfo,
     },
     descriptor_set::{
         allocator::StandardDescriptorSetAllocator, PersistentDescriptorSet, WriteDescriptorSet,
@@ -15,7 +13,10 @@ use vulkano::{
     memory::allocator::{FreeListAllocator, GenericMemoryAllocator},
     pipeline::{ComputePipeline, Pipeline, PipelineBindPoint},
     shader::ShaderModule,
+    sync::{self, GpuFuture},
 };
+
+use crate::engine::{Normal, Position};
 
 pub enum Asset {
     Basic(
