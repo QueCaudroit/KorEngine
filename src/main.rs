@@ -1,11 +1,11 @@
 use std::time::Instant;
 
 use crate::camera::Camera;
-use crate::game::{run, GameScene, GameSceneState};
+use crate::engine::{run, GameScene, GameSceneState};
 use crate::geometry::{get_rotation_y, get_scale_uniform, matrix_mult};
 
 pub mod camera;
-pub mod game;
+pub mod engine;
 pub mod geometry;
 pub mod load_gltf;
 pub mod logo;
@@ -40,8 +40,8 @@ impl GameScene for Scene {
         return (
             &self.camera,
             vec![(
-                "Suzanne",
-                matrix_mult(get_scale_uniform(0.99), get_rotation_y(self.angle)),
+                "TODO",
+                matrix_mult(get_scale_uniform(0.02), get_rotation_y(self.angle)),
             )],
         );
     }

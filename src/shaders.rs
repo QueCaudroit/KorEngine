@@ -1,14 +1,14 @@
-pub mod fs {
+pub mod basic_fragment_shader {
     vulkano_shaders::shader! {
         ty: "fragment",
-        path: "src/shaders/fragment_shader.glsl"
+        path: "src/shaders/basic_fragment.glsl"
     }
 }
 
-pub mod vs {
+pub mod basic_vertex_shader {
     vulkano_shaders::shader! {
         ty: "vertex",
-        path: "src/shaders/vertex_shader.glsl",
+        path: "src/shaders/basic_vertex.glsl",
         types_meta: {
             use bytemuck::{Pod, Zeroable};
             #[derive(Clone, Copy, Default, Zeroable, Pod)]

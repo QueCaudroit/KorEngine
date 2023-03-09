@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::game::{Normal, Position};
+use crate::engine::{Normal, Position};
 use vulkano::command_buffer::CopyBufferInfo;
 use vulkano::sync::{self, GpuFuture};
 use vulkano::{
@@ -17,6 +17,17 @@ use vulkano::{
     shader::ShaderModule,
 };
 
+pub enum Asset {
+    Basic(
+        Arc<DeviceLocalBuffer<[Position]>>,
+        Arc<DeviceLocalBuffer<[Normal]>>,
+    ),
+    Textured(
+        Arc<DeviceLocalBuffer<[Position]>>,
+        Arc<DeviceLocalBuffer<[Normal]>>,
+    ),
+}
+
 pub fn load_gltf(
     device: Arc<Device>,
     memory_allocator: Arc<GenericMemoryAllocator<Arc<FreeListAllocator>>>,
@@ -25,15 +36,12 @@ pub fn load_gltf(
     unindex_shader: Arc<ShaderModule>,
     normal_shader: Arc<ShaderModule>,
     queue: Arc<Queue>,
-) -> (
-    Arc<DeviceLocalBuffer<[Position]>>,
-    Arc<DeviceLocalBuffer<[Normal]>>,
-) {
-    let (gltf_document, gltf_buffers, _gltf_images) = gltf::import("./monkey.glb").unwrap();
+) -> Asset {
+    let (gltf_document, gltf_buffers, _gltf_images) = gltf::import("./Fox.glb").unwrap();
     let mesh = gltf_document
         .meshes()
         .find(|m| match m.name() {
-            Some(name) => name == "Suzanne",
+            Some(name) => name == "fox1",
             None => false,
         })
         .unwrap();
@@ -108,27 +116,7 @@ pub fn load_gltf(
         &index_buffer_option,
         &normal_buffer_option,
     );
-    /*let normals_buffer = CpuAccessibleBuffer::from_iter(
-        &memory_allocator,
-        BufferUsage {
-            vertex_buffer: true,
-            ..BufferUsage::empty()
-        },
-        false,
-        reader.read_normals().unwrap().map(|n| Normal{ normal: n }),
-    )
-    .unwrap();
-    let normals_buffer = DeviceLocalBuffer::<[Normal]>::array(
-        &memory_allocator,
-        vertex_buffer.len(),
-        BufferUsage {
-            vertex_buffer: true,
-            ..BufferUsage::empty()
-        },
-        [queue_family_id]
-    );
-    */
-    return (vertex_buffer, normal_buffer);
+    return Asset::Basic(vertex_buffer, normal_buffer);
 }
 
 fn load_vertex(

@@ -15,6 +15,6 @@ layout(location = 0) out vec4 fragColor;
 void main() {
     vec4 world_position = ubo.model * vec4(position, 1.0);
     gl_Position = ubo.view_proj * world_position;
-    vec3 color = vec3(0.1, 0.1, 0.1) + vec3(0.7, 0.7, 0.7) * dot(normalize(ubo.camera_position), normal);
-    fragColor =  vec4(max(color, vec3(0.0, 0.0, 0.0)), 1.0);
+    vec3 color_temp = ubo.color.rgb * max(dot(normalize(ubo.camera_position), normal), 0.1);
+    fragColor =  vec4(color_temp, ubo.color.a);
 }
