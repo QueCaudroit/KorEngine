@@ -81,7 +81,6 @@ pub trait GameScene {
 pub fn run(gamescene: Box<dyn GameScene>) {
     let mut gamescene = gamescene;
     let library = VulkanLibrary::new().unwrap();
-
     let required_extensions = vulkano_win::required_extensions(&library);
     let instance = Instance::new(
         library,
@@ -301,7 +300,8 @@ pub fn run(gamescene: Box<dyn GameScene>) {
                     camera_position: camera_position,
                 })
                 .unwrap();
-
+            // TODO make various buffers and pipelines for each asset type
+            // TODO make an engine struct
             let command_buffer = get_command_buffer(
                 &command_buffer_allocator,
                 &descriptor_set_allocator,
@@ -491,7 +491,7 @@ fn get_command_buffer(
         [WriteDescriptorSet::buffer(0, uniform_buffer)],
     )
     .unwrap();
-    if let Asset::Basic(position_buffer, normal_buffer) = asset {
+    if let Asset::Basic(position_buffer, normal_buffer, color) = asset {
         builder
             .begin_render_pass(
                 RenderPassBeginInfo {

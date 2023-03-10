@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use gltf::image::Format as GltfFormat;
 use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer, DeviceLocalBuffer, TypedBufferAccess},
     command_buffer::{
@@ -10,6 +11,8 @@ use vulkano::{
         allocator::StandardDescriptorSetAllocator, PersistentDescriptorSet, WriteDescriptorSet,
     },
     device::{Device, Queue},
+    format::Format,
+    image::{view::ImageView, ImageDimensions, ImmutableImage, MipmapsCount},
     memory::allocator::{FreeListAllocator, GenericMemoryAllocator},
     pipeline::{ComputePipeline, Pipeline, PipelineBindPoint},
     shader::ShaderModule,
@@ -18,14 +21,21 @@ use vulkano::{
 
 use crate::engine::{Normal, Position};
 
+pub enum SamplerMode {
+    Default,
+}
+
 pub enum Asset {
     Basic(
         Arc<DeviceLocalBuffer<[Position]>>,
         Arc<DeviceLocalBuffer<[Normal]>>,
+        [f32; 4],
     ),
     Textured(
         Arc<DeviceLocalBuffer<[Position]>>,
         Arc<DeviceLocalBuffer<[Normal]>>,
+        Arc<DeviceLocalBuffer<[u32]>>,
+        Arc<ImageView<ImmutableImage>>,
     ),
 }
 
@@ -38,7 +48,7 @@ pub fn load_gltf(
     normal_shader: Arc<ShaderModule>,
     queue: Arc<Queue>,
 ) -> Asset {
-    let (gltf_document, gltf_buffers, _gltf_images) = gltf::import("./Fox.glb").unwrap();
+    let (gltf_document, gltf_buffers, gltf_images) = gltf::import("./Fox.glb").unwrap();
     let mesh = gltf_document
         .meshes()
         .find(|m| match m.name() {
@@ -106,18 +116,108 @@ pub fn load_gltf(
         &index_buffer_option,
     );
     let normal_buffer = load_normal(
-        device,
-        memory_allocator,
+        device.clone(),
+        memory_allocator.clone(),
         descriptor_set_allocator,
         command_buffer_allocator,
         unindex_shader,
         normal_shader,
-        queue,
+        queue.clone(),
         vertex_buffer.clone(),
         &index_buffer_option,
         &normal_buffer_option,
     );
-    return Asset::Basic(vertex_buffer, normal_buffer);
+    if let Some(texture) = primitive
+        .material()
+        .pbr_metallic_roughness()
+        .base_color_texture()
+    {
+        let tex_coord_temp = CpuAccessibleBuffer::from_iter(
+            &memory_allocator,
+            BufferUsage {
+                transfer_src: true,
+                storage_buffer: true,
+                ..BufferUsage::empty()
+            },
+            false,
+            reader
+                .read_tex_coords(texture.tex_coord())
+                .unwrap()
+                .into_f32(),
+        )
+        .unwrap();
+        let tex_coord = DeviceLocalBuffer::<[u32]>::array(
+            &memory_allocator,
+            vertex_buffer.len(),
+            BufferUsage {
+                storage_buffer: true,
+                transfer_dst: true,
+                ..BufferUsage::empty()
+            },
+            [queue.queue_family_index()],
+        )
+        .unwrap();
+        let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
+            command_buffer_allocator,
+            queue.queue_family_index(),
+            CommandBufferUsage::OneTimeSubmit,
+        )
+        .unwrap();
+        command_buffer_builder
+            .copy_buffer(CopyBufferInfo::buffers(tex_coord_temp, tex_coord.clone()))
+            .unwrap();
+        let command_buffer = command_buffer_builder.build().unwrap();
+        let future = sync::now(device.clone())
+            .then_execute(queue.clone(), command_buffer)
+            .unwrap()
+            .then_signal_fence_and_flush()
+            .unwrap();
+        future.wait(None).unwrap();
+        let image_data = &gltf_images[texture.texture().source().index()];
+        let (array_layers, format) = match image_data.format {
+            GltfFormat::R16 => (1, Format::R16_UINT),
+            GltfFormat::R8 => (1, Format::R8_UINT),
+            GltfFormat::R16G16 => (2, Format::R16G16_UINT),
+            GltfFormat::R8G8 => (2, Format::R8G8_UINT),
+            GltfFormat::R16G16B16 => (3, Format::R16G16B16_UINT),
+            GltfFormat::R8G8B8 => (3, Format::R8G8B8_UINT),
+            GltfFormat::R32G32B32FLOAT => (3, Format::R32G32B32_SFLOAT),
+            GltfFormat::R16G16B16A16 => (4, Format::R16G16B16A16_UINT),
+            GltfFormat::R8G8B8A8 => (4, Format::R8G8B8A8_UINT),
+            GltfFormat::R32G32B32A32FLOAT => (4, Format::R32G32B32A32_SFLOAT),
+        };
+        let dimensions = ImageDimensions::Dim2d {
+            width: image_data.width,
+            height: image_data.height,
+            array_layers: array_layers,
+        };
+        let image = ImmutableImage::from_iter(
+            &memory_allocator,
+            image_data.pixels.iter().map(|data| *data),
+            dimensions,
+            MipmapsCount::Log2,
+            format,
+            &mut AutoCommandBufferBuilder::primary(
+                command_buffer_allocator,
+                queue.queue_family_index(),
+                CommandBufferUsage::OneTimeSubmit,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        return Asset::Textured(
+            vertex_buffer,
+            normal_buffer,
+            tex_coord,
+            ImageView::new_default(image).unwrap(),
+        );
+    } else {
+        let color = primitive
+            .material()
+            .pbr_metallic_roughness()
+            .base_color_factor();
+        return Asset::Basic(vertex_buffer, normal_buffer, color);
+    }
 }
 
 fn load_vertex(
