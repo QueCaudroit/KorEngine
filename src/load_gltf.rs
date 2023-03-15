@@ -48,11 +48,11 @@ pub fn load_gltf(
     normal_shader: Arc<ShaderModule>,
     queue: Arc<Queue>,
 ) -> Asset {
-    let (gltf_document, gltf_buffers, gltf_images) = gltf::import("./Fox.glb").unwrap();
+    let (gltf_document, gltf_buffers, gltf_images) = gltf::import("./monkey.glb").unwrap();
     let mesh = gltf_document
         .meshes()
         .find(|m| match m.name() {
-            Some(name) => name == "fox1",
+            Some(name) => name == "Suzanne",
             None => false,
         })
         .unwrap();

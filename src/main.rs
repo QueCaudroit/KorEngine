@@ -43,7 +43,7 @@ impl GameScene for Scene {
             &self.camera,
             vec![(
                 "TODO",
-                matrix_mult(get_scale_uniform(0.02), get_rotation_y(self.angle)),
+                matrix_mult(get_scale_uniform(0.99), get_rotation_y(self.angle)),
             )],
         );
     }
