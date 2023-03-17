@@ -27,7 +27,6 @@ use vulkano::{
         GraphicsPipeline, Pipeline, PipelineBindPoint,
     },
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
-    shader::ShaderModule,
     swapchain::{
         acquire_next_image, AcquireError, Surface, Swapchain, SwapchainCreateInfo,
         SwapchainCreationError, SwapchainPresentInfo,
@@ -47,7 +46,7 @@ use crate::{
     geometry::{extract_translation, get_perspective, get_reverse_transform, matrix_mult},
     load_gltf::{load_gltf, Asset},
     logo::get_logo,
-    shaders::{basic_fragment_shader, basic_vertex_shader, normal_shader, unindex_shader},
+    shaders::{ShaderCollection, basic_vertex_shader},
 };
 
 #[repr(C)]
@@ -160,20 +159,11 @@ pub fn run(gamescene: Box<dyn GameScene>) {
     .unwrap();
 
     let render_pass = get_render_pass(device.clone(), swapchain.clone());
-
-    let basic_vertex_shader =
-        basic_vertex_shader::load(device.clone()).expect("failed to create shader module");
-    let basic_fragment_shader =
-        basic_fragment_shader::load(device.clone()).expect("failed to create shader module");
-    let unindex_shader =
-        unindex_shader::load(device.clone()).expect("failed to create shader module");
-    let normal_shader =
-        normal_shader::load(device.clone()).expect("failed to create shader module");
+    let shaders = ShaderCollection::load(device.clone());
     let (mut pipeline, mut framebuffers) = window_size_dependent_setup(
         device.clone(),
         &memory_allocator,
-        &basic_vertex_shader,
-        &basic_fragment_shader,
+        &shaders,
         &images,
         render_pass.clone(),
     );
@@ -191,8 +181,7 @@ pub fn run(gamescene: Box<dyn GameScene>) {
         memory_allocator.clone(),
         &descriptor_set_allocator,
         &command_buffer_allocator,
-        unindex_shader.clone(),
-        normal_shader.clone(),
+        &shaders,
         queue.clone(),
     );
 
@@ -252,8 +241,7 @@ pub fn run(gamescene: Box<dyn GameScene>) {
                     (pipeline, framebuffers) = window_size_dependent_setup(
                         device.clone(),
                         &memory_allocator,
-                        &basic_vertex_shader,
-                        &basic_fragment_shader,
+                        &shaders,
                         &new_images,
                         render_pass.clone(),
                     );
@@ -397,8 +385,7 @@ fn get_render_pass(device: Arc<Device>, swapchain: Arc<Swapchain>) -> Arc<Render
 fn window_size_dependent_setup(
     device: Arc<Device>,
     memory_allocator: &impl MemoryAllocator,
-    vs: &ShaderModule,
-    fs: &ShaderModule,
+    shaders: &ShaderCollection,
     images: &[Arc<SwapchainImage>],
     render_pass: Arc<RenderPass>,
 ) -> (Arc<GraphicsPipeline>, Vec<Arc<Framebuffer>>) {
@@ -409,7 +396,7 @@ fn window_size_dependent_setup(
         render_pass.clone(),
         &dimensions,
     );
-    let pipeline = get_pipeline(device, vs, fs, render_pass, &dimensions);
+    let pipeline = get_pipeline(device, shaders, render_pass, &dimensions);
     return (pipeline, framebuffers);
 }
 
@@ -442,8 +429,7 @@ fn get_framebuffers(
 
 fn get_pipeline(
     device: Arc<Device>,
-    vs: &ShaderModule,
-    fs: &ShaderModule,
+    shaders: &ShaderCollection,
     render_pass: Arc<RenderPass>,
     dimensions: &[u32; 2],
 ) -> Arc<GraphicsPipeline> {
@@ -453,7 +439,7 @@ fn get_pipeline(
                 .vertex::<Position>()
                 .vertex::<Normal>(),
         )
-        .vertex_shader(vs.entry_point("main").unwrap(), ())
+        .vertex_shader(shaders.basic_vertex.entry_point("main").unwrap(), ())
         .input_assembly_state(InputAssemblyState::new())
         .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([
             Viewport {
@@ -462,7 +448,7 @@ fn get_pipeline(
                 depth_range: 0.0..1.0,
             },
         ]))
-        .fragment_shader(fs.entry_point("main").unwrap(), ())
+        .fragment_shader(shaders.basic_fragment.entry_point("main").unwrap(), ())
         .depth_stencil_state(DepthStencilState::simple_depth_test())
         .render_pass(Subpass::from(render_pass, 0).unwrap())
         .build(device)

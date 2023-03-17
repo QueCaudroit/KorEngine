@@ -15,11 +15,11 @@ use vulkano::{
     image::{view::ImageView, ImageDimensions, ImmutableImage, MipmapsCount},
     memory::allocator::{FreeListAllocator, GenericMemoryAllocator},
     pipeline::{ComputePipeline, Pipeline, PipelineBindPoint},
-    shader::ShaderModule,
     sync::{self, GpuFuture},
 };
 
 use crate::engine::{Normal, Position};
+use crate::shaders::ShaderCollection;
 
 pub enum SamplerMode {
     Default,
@@ -44,8 +44,7 @@ pub fn load_gltf(
     memory_allocator: Arc<GenericMemoryAllocator<Arc<FreeListAllocator>>>,
     descriptor_set_allocator: &StandardDescriptorSetAllocator,
     command_buffer_allocator: &StandardCommandBufferAllocator,
-    unindex_shader: Arc<ShaderModule>,
-    normal_shader: Arc<ShaderModule>,
+    shaders: &ShaderCollection,
     queue: Arc<Queue>,
 ) -> Asset {
     let (gltf_document, gltf_buffers, gltf_images) = gltf::import("./monkey.glb").unwrap();
@@ -110,7 +109,7 @@ pub fn load_gltf(
         memory_allocator.clone(),
         descriptor_set_allocator,
         command_buffer_allocator,
-        unindex_shader.clone(),
+        shaders,
         queue.clone(),
         vertex_buffer_temp,
         &index_buffer_option,
@@ -120,8 +119,7 @@ pub fn load_gltf(
         memory_allocator.clone(),
         descriptor_set_allocator,
         command_buffer_allocator,
-        unindex_shader,
-        normal_shader,
+        shaders,
         queue.clone(),
         vertex_buffer.clone(),
         &index_buffer_option,
@@ -166,6 +164,7 @@ pub fn load_gltf(
         command_buffer_builder
             .copy_buffer(CopyBufferInfo::buffers(tex_coord_temp, tex_coord.clone()))
             .unwrap();
+        //TODO handle indexed case
         let command_buffer = command_buffer_builder.build().unwrap();
         let future = sync::now(device.clone())
             .then_execute(queue.clone(), command_buffer)
@@ -225,7 +224,7 @@ fn load_vertex(
     memory_allocator: Arc<GenericMemoryAllocator<Arc<FreeListAllocator>>>,
     descriptor_set_allocator: &StandardDescriptorSetAllocator,
     command_buffer_allocator: &StandardCommandBufferAllocator,
-    unindex_shader: Arc<ShaderModule>,
+    shaders: &ShaderCollection,
     queue: Arc<Queue>,
     vertex_buffer_temp: Arc<CpuAccessibleBuffer<[Position]>>,
     index_buffer_option: &Option<Arc<CpuAccessibleBuffer<[u32]>>>,
@@ -256,7 +255,7 @@ fn load_vertex(
     if let Some(index_buffer) = &index_buffer_option {
         let compute_pipeline = ComputePipeline::new(
             device.clone(),
-            unindex_shader.entry_point("main").unwrap(),
+            shaders.unindex.entry_point("main").unwrap(),
             &(),
             None,
             |_| {},
@@ -307,8 +306,7 @@ fn load_normal(
     memory_allocator: Arc<GenericMemoryAllocator<Arc<FreeListAllocator>>>,
     descriptor_set_allocator: &StandardDescriptorSetAllocator,
     command_buffer_allocator: &StandardCommandBufferAllocator,
-    unindex_shader: Arc<ShaderModule>,
-    normal_shader: Arc<ShaderModule>,
+    shaders: &ShaderCollection,
     queue: Arc<Queue>,
     vertex_buffer: Arc<DeviceLocalBuffer<[Position]>>,
     index_buffer_option: &Option<Arc<CpuAccessibleBuffer<[u32]>>>,
@@ -337,7 +335,7 @@ fn load_normal(
         if let Some(index_buffer) = &index_buffer_option {
             let compute_pipeline = ComputePipeline::new(
                 device.clone(),
-                unindex_shader.entry_point("main").unwrap(),
+                shaders.unindex.entry_point("main").unwrap(),
                 &(),
                 None,
                 |_| {},
@@ -375,7 +373,7 @@ fn load_normal(
     } else {
         let compute_pipeline = ComputePipeline::new(
             device.clone(),
-            normal_shader.entry_point("main").unwrap(),
+            shaders.normal.entry_point("main").unwrap(),
             &(),
             None,
             |_| {},
