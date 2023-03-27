@@ -1,4 +1,6 @@
-use std::time::Instant;
+use logo::get_logo;
+use std::{f32::consts::TAU, time::Instant};
+use winit::{event_loop::EventLoop, window::WindowBuilder};
 
 use crate::{
     camera::Camera,
@@ -6,11 +8,13 @@ use crate::{
     geometry::{get_rotation_y, get_scale_uniform, matrix_mult},
 };
 
+pub mod allocators;
 pub mod camera;
 pub mod engine;
 pub mod geometry;
 pub mod load_gltf;
 pub mod logo;
+pub mod pipeline;
 pub mod shaders;
 
 struct Scene {
@@ -34,7 +38,7 @@ impl Scene {
 impl GameScene for Scene {
     fn update(&mut self) -> GameSceneState {
         let duration = Instant::now().duration_since(self.start_time).as_millis();
-        self.angle = 6.28 * duration as f32 * self.frequency / 1000.0;
+        self.angle = TAU * duration as f32 * self.frequency / 1000.0;
         return GameSceneState::Continue;
     }
 
@@ -50,5 +54,13 @@ impl GameScene for Scene {
 }
 
 fn main() {
-    run(Box::new(Scene::new()));
+    let event_loop = EventLoop::new();
+    let window = WindowBuilder::new()
+        .with_visible(false)
+        .with_title("Musogame TODO")
+        .with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)))
+        .with_window_icon(get_logo())
+        .build(&event_loop)
+        .unwrap();
+    run(event_loop, window, Box::new(Scene::new()));
 }

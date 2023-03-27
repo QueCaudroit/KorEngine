@@ -1,25 +1,18 @@
 use std::sync::Arc;
 
-use gltf::image::Format as GltfFormat;
+use gltf::image::{Data, Format as GltfFormat};
 use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer, DeviceLocalBuffer, TypedBufferAccess},
-    command_buffer::{
-        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
-        CopyBufferInfo,
-    },
-    descriptor_set::{
-        allocator::StandardDescriptorSetAllocator, PersistentDescriptorSet, WriteDescriptorSet,
-    },
-    device::{Device, Queue},
+    command_buffer::{AutoCommandBufferBuilder, CommandBufferUsage, CopyBufferInfo},
+    descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
     format::Format,
     image::{view::ImageView, ImageDimensions, ImmutableImage, MipmapsCount},
-    memory::allocator::{FreeListAllocator, GenericMemoryAllocator},
-    pipeline::{ComputePipeline, Pipeline, PipelineBindPoint},
+    pipeline::{Pipeline, PipelineBindPoint},
     sync::{self, GpuFuture},
 };
 
+use crate::engine::Engine;
 use crate::engine::{Normal, Position};
-use crate::shaders::ShaderCollection;
 
 pub enum SamplerMode {
     Default,
@@ -34,24 +27,17 @@ pub enum Asset {
     Textured(
         Arc<DeviceLocalBuffer<[Position]>>,
         Arc<DeviceLocalBuffer<[Normal]>>,
-        Arc<DeviceLocalBuffer<[u32]>>,
+        Arc<DeviceLocalBuffer<[[f32; 2]]>>,
         Arc<ImageView<ImmutableImage>>,
     ),
 }
 
-pub fn load_gltf(
-    device: Arc<Device>,
-    memory_allocator: Arc<GenericMemoryAllocator<Arc<FreeListAllocator>>>,
-    descriptor_set_allocator: &StandardDescriptorSetAllocator,
-    command_buffer_allocator: &StandardCommandBufferAllocator,
-    shaders: &ShaderCollection,
-    queue: Arc<Queue>,
-) -> Asset {
-    let (gltf_document, gltf_buffers, gltf_images) = gltf::import("./monkey.glb").unwrap();
+pub fn load_gltf(engine: &Engine, filename: &str, mesh_name: &str) -> Asset {
+    let (gltf_document, gltf_buffers, gltf_images) = gltf::import(filename).unwrap();
     let mesh = gltf_document
         .meshes()
         .find(|m| match m.name() {
-            Some(name) => name == "Suzanne",
+            Some(name) => name == mesh_name,
             None => false,
         })
         .unwrap();
@@ -60,7 +46,7 @@ pub fn load_gltf(
     let index_buffer_option = match reader.read_indices() {
         Some(buffer) => Some(
             CpuAccessibleBuffer::from_iter(
-                &memory_allocator,
+                &engine.allocators.memory,
                 BufferUsage {
                     storage_buffer: true,
                     index_buffer: true,
@@ -74,7 +60,7 @@ pub fn load_gltf(
         None => None,
     };
     let vertex_buffer_temp = CpuAccessibleBuffer::from_iter(
-        &memory_allocator,
+        &engine.allocators.memory,
         BufferUsage {
             storage_buffer: true,
             vertex_buffer: true,
@@ -91,7 +77,7 @@ pub fn load_gltf(
     let normal_buffer_option = match reader.read_normals() {
         Some(buffer) => Some(
             CpuAccessibleBuffer::from_iter(
-                &memory_allocator,
+                &engine.allocators.memory,
                 BufferUsage {
                     storage_buffer: true,
                     index_buffer: true,
@@ -104,23 +90,9 @@ pub fn load_gltf(
         ),
         None => None,
     };
-    let vertex_buffer = load_vertex(
-        device.clone(),
-        memory_allocator.clone(),
-        descriptor_set_allocator,
-        command_buffer_allocator,
-        shaders,
-        queue.clone(),
-        vertex_buffer_temp,
-        &index_buffer_option,
-    );
+    let vertex_buffer = load_vertex(engine, vertex_buffer_temp, &index_buffer_option);
     let normal_buffer = load_normal(
-        device.clone(),
-        memory_allocator.clone(),
-        descriptor_set_allocator,
-        command_buffer_allocator,
-        shaders,
-        queue.clone(),
+        engine,
         vertex_buffer.clone(),
         &index_buffer_option,
         &normal_buffer_option,
@@ -131,7 +103,7 @@ pub fn load_gltf(
         .base_color_texture()
     {
         let tex_coord_temp = CpuAccessibleBuffer::from_iter(
-            &memory_allocator,
+            &engine.allocators.memory,
             BufferUsage {
                 transfer_src: true,
                 storage_buffer: true,
@@ -144,72 +116,16 @@ pub fn load_gltf(
                 .into_f32(),
         )
         .unwrap();
-        let tex_coord = DeviceLocalBuffer::<[u32]>::array(
-            &memory_allocator,
-            vertex_buffer.len(),
-            BufferUsage {
-                storage_buffer: true,
-                transfer_dst: true,
-                ..BufferUsage::empty()
-            },
-            [queue.queue_family_index()],
-        )
-        .unwrap();
-        let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
-            command_buffer_allocator,
-            queue.queue_family_index(),
-            CommandBufferUsage::OneTimeSubmit,
-        )
-        .unwrap();
-        command_buffer_builder
-            .copy_buffer(CopyBufferInfo::buffers(tex_coord_temp, tex_coord.clone()))
-            .unwrap();
-        //TODO handle indexed case
-        let command_buffer = command_buffer_builder.build().unwrap();
-        let future = sync::now(device.clone())
-            .then_execute(queue.clone(), command_buffer)
-            .unwrap()
-            .then_signal_fence_and_flush()
-            .unwrap();
-        future.wait(None).unwrap();
         let image_data = &gltf_images[texture.texture().source().index()];
-        let (array_layers, format) = match image_data.format {
-            GltfFormat::R16 => (1, Format::R16_UINT),
-            GltfFormat::R8 => (1, Format::R8_UINT),
-            GltfFormat::R16G16 => (2, Format::R16G16_UINT),
-            GltfFormat::R8G8 => (2, Format::R8G8_UINT),
-            GltfFormat::R16G16B16 => (3, Format::R16G16B16_UINT),
-            GltfFormat::R8G8B8 => (3, Format::R8G8B8_UINT),
-            GltfFormat::R32G32B32FLOAT => (3, Format::R32G32B32_SFLOAT),
-            GltfFormat::R16G16B16A16 => (4, Format::R16G16B16A16_UINT),
-            GltfFormat::R8G8B8A8 => (4, Format::R8G8B8A8_UINT),
-            GltfFormat::R32G32B32A32FLOAT => (4, Format::R32G32B32A32_SFLOAT),
-        };
-        let dimensions = ImageDimensions::Dim2d {
-            width: image_data.width,
-            height: image_data.height,
-            array_layers: array_layers,
-        };
-        let image = ImmutableImage::from_iter(
-            &memory_allocator,
-            image_data.pixels.iter().map(|data| *data),
-            dimensions,
-            MipmapsCount::Log2,
-            format,
-            &mut AutoCommandBufferBuilder::primary(
-                command_buffer_allocator,
-                queue.queue_family_index(),
-                CommandBufferUsage::OneTimeSubmit,
-            )
-            .unwrap(),
-        )
-        .unwrap();
-        return Asset::Textured(
-            vertex_buffer,
-            normal_buffer,
-            tex_coord,
-            ImageView::new_default(image).unwrap(),
+
+        let (tex_coord, image) = load_texture(
+            engine,
+            vertex_buffer.len(),
+            tex_coord_temp,
+            &index_buffer_option,
+            image_data,
         );
+        return Asset::Textured(vertex_buffer, normal_buffer, tex_coord, image);
     } else {
         let color = primitive
             .material()
@@ -220,12 +136,7 @@ pub fn load_gltf(
 }
 
 fn load_vertex(
-    device: Arc<Device>,
-    memory_allocator: Arc<GenericMemoryAllocator<Arc<FreeListAllocator>>>,
-    descriptor_set_allocator: &StandardDescriptorSetAllocator,
-    command_buffer_allocator: &StandardCommandBufferAllocator,
-    shaders: &ShaderCollection,
-    queue: Arc<Queue>,
+    engine: &Engine,
     vertex_buffer_temp: Arc<CpuAccessibleBuffer<[Position]>>,
     index_buffer_option: &Option<Arc<CpuAccessibleBuffer<[u32]>>>,
 ) -> Arc<DeviceLocalBuffer<[Position]>> {
@@ -234,7 +145,7 @@ fn load_vertex(
         None => vertex_buffer_temp.len(),
     };
     let vertex_buffer = DeviceLocalBuffer::<[Position]>::array(
-        &memory_allocator,
+        &engine.allocators.memory,
         vertex_len,
         BufferUsage {
             storage_buffer: true,
@@ -242,28 +153,26 @@ fn load_vertex(
             transfer_dst: true,
             ..BufferUsage::empty()
         },
-        [queue.queue_family_index()],
+        [engine.queue.queue_family_index()],
     )
     .unwrap();
 
     let mut builder = AutoCommandBufferBuilder::primary(
-        command_buffer_allocator,
-        queue.queue_family_index(),
+        &engine.allocators.command_buffer,
+        engine.queue.queue_family_index(),
         CommandBufferUsage::OneTimeSubmit,
     )
     .unwrap();
     if let Some(index_buffer) = &index_buffer_option {
-        let compute_pipeline = ComputePipeline::new(
-            device.clone(),
-            shaders.unindex.entry_point("main").unwrap(),
-            &(),
-            None,
-            |_| {},
-        )
-        .expect("failed to create compute pipeline");
-        let layout = compute_pipeline.layout().set_layouts().get(0).unwrap();
+        let layout = engine
+            .pipelines
+            .unindex_vec3
+            .layout()
+            .set_layouts()
+            .get(0)
+            .unwrap();
         let set = PersistentDescriptorSet::new(
-            descriptor_set_allocator,
+            &engine.allocators.descriptor_set,
             layout.clone(),
             [
                 WriteDescriptorSet::buffer(0, vertex_buffer_temp.clone()),
@@ -273,10 +182,10 @@ fn load_vertex(
         )
         .unwrap();
         builder
-            .bind_pipeline_compute(compute_pipeline.clone())
+            .bind_pipeline_compute(engine.pipelines.unindex_vec3.clone())
             .bind_descriptor_sets(
                 PipelineBindPoint::Compute,
-                compute_pipeline.layout().clone(),
+                engine.pipelines.unindex_vec3.layout().clone(),
                 0,
                 set,
             )
@@ -292,8 +201,8 @@ fn load_vertex(
     }
     let command_buffer = builder.build().unwrap();
 
-    let future = sync::now(device.clone())
-        .then_execute(queue.clone(), command_buffer)
+    let future = sync::now(engine.device.clone())
+        .then_execute(engine.queue.clone(), command_buffer)
         .unwrap()
         .then_signal_fence_and_flush()
         .unwrap();
@@ -302,19 +211,14 @@ fn load_vertex(
 }
 
 fn load_normal(
-    device: Arc<Device>,
-    memory_allocator: Arc<GenericMemoryAllocator<Arc<FreeListAllocator>>>,
-    descriptor_set_allocator: &StandardDescriptorSetAllocator,
-    command_buffer_allocator: &StandardCommandBufferAllocator,
-    shaders: &ShaderCollection,
-    queue: Arc<Queue>,
+    engine: &Engine,
     vertex_buffer: Arc<DeviceLocalBuffer<[Position]>>,
     index_buffer_option: &Option<Arc<CpuAccessibleBuffer<[u32]>>>,
     normal_buffer_option: &Option<Arc<CpuAccessibleBuffer<[Normal]>>>,
 ) -> Arc<DeviceLocalBuffer<[Normal]>> {
     let vertex_len = vertex_buffer.len();
     let normal_buffer = DeviceLocalBuffer::<[Normal]>::array(
-        &memory_allocator,
+        &engine.allocators.memory,
         vertex_len,
         BufferUsage {
             storage_buffer: true,
@@ -322,28 +226,26 @@ fn load_normal(
             transfer_dst: true,
             ..BufferUsage::empty()
         },
-        [queue.queue_family_index()],
+        [engine.queue.queue_family_index()],
     )
     .unwrap();
     let mut builder = AutoCommandBufferBuilder::primary(
-        command_buffer_allocator,
-        queue.queue_family_index(),
+        &engine.allocators.command_buffer,
+        engine.queue.queue_family_index(),
         CommandBufferUsage::OneTimeSubmit,
     )
     .unwrap();
     if let Some(normal_buffer_temp) = &normal_buffer_option {
         if let Some(index_buffer) = &index_buffer_option {
-            let compute_pipeline = ComputePipeline::new(
-                device.clone(),
-                shaders.unindex.entry_point("main").unwrap(),
-                &(),
-                None,
-                |_| {},
-            )
-            .expect("failed to create compute pipeline");
-            let layout = compute_pipeline.layout().set_layouts().get(0).unwrap();
+            let layout = engine
+                .pipelines
+                .unindex_vec3
+                .layout()
+                .set_layouts()
+                .get(0)
+                .unwrap();
             let set = PersistentDescriptorSet::new(
-                descriptor_set_allocator,
+                &engine.allocators.descriptor_set,
                 layout.clone(),
                 [
                     WriteDescriptorSet::buffer(0, normal_buffer_temp.clone()),
@@ -353,10 +255,10 @@ fn load_normal(
             )
             .unwrap();
             builder
-                .bind_pipeline_compute(compute_pipeline.clone())
+                .bind_pipeline_compute(engine.pipelines.unindex_vec3.clone())
                 .bind_descriptor_sets(
                     PipelineBindPoint::Compute,
-                    compute_pipeline.layout().clone(),
+                    engine.pipelines.unindex_vec3.layout().clone(),
                     0,
                     set,
                 )
@@ -371,17 +273,15 @@ fn load_normal(
                 .unwrap();
         }
     } else {
-        let compute_pipeline = ComputePipeline::new(
-            device.clone(),
-            shaders.normal.entry_point("main").unwrap(),
-            &(),
-            None,
-            |_| {},
-        )
-        .expect("failed to create compute pipeline");
-        let layout = compute_pipeline.layout().set_layouts().get(0).unwrap();
+        let layout = engine
+            .pipelines
+            .normal
+            .layout()
+            .set_layouts()
+            .get(0)
+            .unwrap();
         let set = PersistentDescriptorSet::new(
-            descriptor_set_allocator,
+            &engine.allocators.descriptor_set,
             layout.clone(),
             [
                 WriteDescriptorSet::buffer(0, vertex_buffer.clone()),
@@ -390,10 +290,10 @@ fn load_normal(
         )
         .unwrap();
         builder
-            .bind_pipeline_compute(compute_pipeline.clone())
+            .bind_pipeline_compute(engine.pipelines.normal.clone())
             .bind_descriptor_sets(
                 PipelineBindPoint::Compute,
-                compute_pipeline.layout().clone(),
+                engine.pipelines.normal.layout().clone(),
                 0,
                 set,
             )
@@ -402,11 +302,117 @@ fn load_normal(
     }
     let command_buffer = builder.build().unwrap();
 
-    let future = sync::now(device.clone())
-        .then_execute(queue.clone(), command_buffer)
+    let future = sync::now(engine.device.clone())
+        .then_execute(engine.queue.clone(), command_buffer)
         .unwrap()
         .then_signal_fence_and_flush()
         .unwrap();
     future.wait(None).unwrap();
     return normal_buffer;
+}
+
+fn load_texture(
+    engine: &Engine,
+    vertex_len: u64,
+    texture_coord_temp: Arc<CpuAccessibleBuffer<[[f32; 2]]>>,
+    index_buffer_option: &Option<Arc<CpuAccessibleBuffer<[u32]>>>,
+    image_data: &Data,
+) -> (
+    Arc<DeviceLocalBuffer<[[f32; 2]]>>,
+    Arc<ImageView<ImmutableImage>>,
+) {
+    let tex_coord = DeviceLocalBuffer::<[[f32; 2]]>::array(
+        &engine.allocators.memory,
+        vertex_len,
+        BufferUsage {
+            vertex_buffer: true,
+            storage_buffer: true,
+            transfer_dst: true,
+            ..BufferUsage::empty()
+        },
+        [engine.queue.queue_family_index()],
+    )
+    .unwrap();
+
+    let mut builder = AutoCommandBufferBuilder::primary(
+        &engine.allocators.command_buffer,
+        engine.queue.queue_family_index(),
+        CommandBufferUsage::OneTimeSubmit,
+    )
+    .unwrap();
+    if let Some(index_buffer) = index_buffer_option {
+        let layout = engine
+            .pipelines
+            .unindex_vec2
+            .layout()
+            .set_layouts()
+            .get(0)
+            .unwrap();
+        let set = PersistentDescriptorSet::new(
+            &engine.allocators.descriptor_set,
+            layout.clone(),
+            [
+                WriteDescriptorSet::buffer(0, texture_coord_temp.clone()),
+                WriteDescriptorSet::buffer(1, index_buffer.clone()),
+                WriteDescriptorSet::buffer(2, tex_coord.clone()),
+            ],
+        )
+        .unwrap();
+        builder
+            .bind_pipeline_compute(engine.pipelines.unindex_vec2.clone())
+            .bind_descriptor_sets(
+                PipelineBindPoint::Compute,
+                engine.pipelines.unindex_vec2.layout().clone(),
+                0,
+                set,
+            )
+            .dispatch([index_buffer.len() as u32 / 64 + 1, 1, 1])
+            .unwrap();
+    } else {
+        builder
+            .copy_buffer(CopyBufferInfo::buffers(
+                texture_coord_temp,
+                tex_coord.clone(),
+            ))
+            .unwrap();
+    }
+    let command_buffer = builder.build().unwrap();
+    let future = sync::now(engine.device.clone())
+        .then_execute(engine.queue.clone(), command_buffer)
+        .unwrap()
+        .then_signal_fence_and_flush()
+        .unwrap();
+    future.wait(None).unwrap();
+    let (array_layers, format) = match image_data.format {
+        GltfFormat::R16 => (1, Format::R16_UINT),
+        GltfFormat::R8 => (1, Format::R8_UINT),
+        GltfFormat::R16G16 => (2, Format::R16G16_UINT),
+        GltfFormat::R8G8 => (2, Format::R8G8_UINT),
+        GltfFormat::R16G16B16 => (3, Format::R16G16B16_UINT),
+        GltfFormat::R8G8B8 => (3, Format::R8G8B8_UINT),
+        GltfFormat::R32G32B32FLOAT => (3, Format::R32G32B32_SFLOAT),
+        GltfFormat::R16G16B16A16 => (4, Format::R16G16B16A16_UINT),
+        GltfFormat::R8G8B8A8 => (4, Format::R8G8B8A8_UINT),
+        GltfFormat::R32G32B32A32FLOAT => (4, Format::R32G32B32A32_SFLOAT),
+    };
+    let dimensions = ImageDimensions::Dim2d {
+        width: image_data.width,
+        height: image_data.height,
+        array_layers: array_layers,
+    };
+    let image = ImmutableImage::from_iter(
+        &engine.allocators.memory,
+        image_data.pixels.iter().map(|data| *data),
+        dimensions,
+        MipmapsCount::Log2,
+        format,
+        &mut AutoCommandBufferBuilder::primary(
+            &engine.allocators.command_buffer,
+            engine.queue.queue_family_index(),
+            CommandBufferUsage::OneTimeSubmit,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    (tex_coord, ImageView::new_default(image).unwrap())
 }

@@ -20,10 +20,39 @@ pub mod basic_vertex_shader {
     }
 }
 
-pub mod unindex_shader {
+pub mod textured_vertex_shader {
+    vulkano_shaders::shader! {
+        ty: "vertex",
+        path: "src/shaders/textured_vertex.glsl",
+        types_meta: {
+            use bytemuck::{Pod, Zeroable};
+            #[derive(Clone, Copy, Default, Zeroable, Pod)]
+        }
+    }
+}
+
+pub mod textured_fragment_shader {
+    vulkano_shaders::shader! {
+        ty: "fragment",
+        path: "src/shaders/textured_fragment.glsl",
+        types_meta: {
+            use bytemuck::{Pod, Zeroable};
+            #[derive(Clone, Copy, Default, Zeroable, Pod)]
+        }
+    }
+}
+
+pub mod unindex_vec3_shader {
     vulkano_shaders::shader! {
         ty: "compute",
-        path: "src/shaders/unindex.glsl"
+        path: "src/shaders/unindex_vec3.glsl"
+    }
+}
+
+pub mod unindex_vec2_shader {
+    vulkano_shaders::shader! {
+        ty: "compute",
+        path: "src/shaders/unindex_vec2.glsl"
     }
 }
 
@@ -37,17 +66,29 @@ pub mod normal_shader {
 pub struct ShaderCollection {
     pub basic_vertex: Arc<ShaderModule>,
     pub basic_fragment: Arc<ShaderModule>,
+    pub textured_vertex: Arc<ShaderModule>,
+    pub textured_fragment: Arc<ShaderModule>,
     pub normal: Arc<ShaderModule>,
-    pub unindex: Arc<ShaderModule>,
+    pub unindex_vec3: Arc<ShaderModule>,
+    pub unindex_vec2: Arc<ShaderModule>,
 }
 
 impl ShaderCollection {
-    pub fn load(device: Arc<vulkano::device::Device>) -> Self {
-        return ShaderCollection{
-            basic_vertex: basic_vertex_shader::load(device.clone()).expect("failed to create shader module"),
-            basic_fragment: basic_fragment_shader::load(device.clone()).expect("failed to create shader module"),
+    pub fn new(device: Arc<vulkano::device::Device>) -> Self {
+        return ShaderCollection {
+            basic_vertex: basic_vertex_shader::load(device.clone())
+                .expect("failed to create shader module"),
+            basic_fragment: basic_fragment_shader::load(device.clone())
+                .expect("failed to create shader module"),
+            textured_vertex: textured_vertex_shader::load(device.clone())
+                .expect("failed to create shader module"),
+            textured_fragment: textured_fragment_shader::load(device.clone())
+                .expect("failed to create shader module"),
             normal: normal_shader::load(device.clone()).expect("failed to create shader module"),
-            unindex: unindex_shader::load(device.clone()).expect("failed to create shader module"),
-        }
+            unindex_vec3: unindex_vec3_shader::load(device.clone())
+                .expect("failed to create shader module"),
+            unindex_vec2: unindex_vec2_shader::load(device)
+                .expect("failed to create shader module"),
+        };
     }
 }
