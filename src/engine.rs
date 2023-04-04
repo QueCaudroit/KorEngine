@@ -1,8 +1,10 @@
+// TODO better define engine load api
+
 use std::{collections::HashMap, f32::consts::FRAC_PI_2, mem, sync::Arc, time::Instant};
 use vulkano::{
     buffer::{
         allocator::{SubbufferAllocator, SubbufferAllocatorCreateInfo},
-        BufferContents, BufferUsage, Subbuffer,
+        BufferContents, BufferUsage,
     },
     command_buffer::{
         AutoCommandBufferBuilder, CommandBufferUsage, PrimaryAutoCommandBuffer,
@@ -126,6 +128,7 @@ pub struct Engine {
     pub gamescene: Box<dyn GameScene>,
     pub previous_frame_end: Box<dyn GpuFuture>,
     pub assets: HashMap<String, Asset>,
+    pub uniform_buffer: SubbufferAllocator,
 }
 
 impl Engine {
@@ -155,6 +158,13 @@ impl Engine {
             render_pass.clone(),
             &dimensions,
         );
+        let uniform_buffer = SubbufferAllocator::new(
+            allocators.memory.clone(),
+            SubbufferAllocatorCreateInfo {
+                buffer_usage: BufferUsage::UNIFORM_BUFFER,
+                ..Default::default()
+            },
+        );
         let previous_frame_end = sync::now(device.clone()).boxed();
         Engine {
             surface,
@@ -173,6 +183,7 @@ impl Engine {
             gamescene,
             previous_frame_end,
             assets: HashMap::new(),
+            uniform_buffer,
         }
     }
 
@@ -234,30 +245,14 @@ impl Engine {
         let camera_view = camera.get_view();
         let camera_position =
             extract_translation(get_reverse_transform(matrix_mult(*item_pos, camera_view)));
-        // TODO use CPUAccessibleBuffer for uniforms
-        // TODO better define engine api
+        let view_proj = matrix_mult(camera_view, projection);
 
-        let uniform_buffer = SubbufferAllocator::new(
-            self.allocators.memory.clone(),
-            SubbufferAllocatorCreateInfo {
-                buffer_usage: BufferUsage::UNIFORM_BUFFER,
-                ..Default::default()
-            },
-        );
-        let uniform_subbuffer = uniform_buffer.allocate_sized().unwrap();
-        *uniform_subbuffer.write().unwrap() = basic_vertex_shader::UniformBufferObject {
-            model: *item_pos,
-            view_proj: matrix_mult(camera_view, projection),
-            color: [0.8, 0.8, 0.8, 1.0],
-            camera_position: camera_position,
-        };
-        let command_buffer = get_command_buffer(
-            &self.allocators,
-            self.queue.clone(),
-            &self.pipelines,
-            self.framebuffers[image_i].clone(),
+        let command_buffer = self.get_command_buffer(
+            image_i,
             &self.assets.get(item_name.to_owned()).unwrap(),
-            uniform_subbuffer.clone(),
+            view_proj,
+            *item_pos,
+            camera_position,
         );
         self.previous_frame_end.cleanup_finished();
         let mut temp_future = sync::now(self.device.clone()).boxed();
@@ -282,6 +277,70 @@ impl Engine {
             }
         };
         false
+    }
+
+    fn get_command_buffer(
+        &self,
+        image_index: usize,
+        asset: &Asset,
+        view_proj: [[f32; 4]; 4],
+        item_pos: [[f32; 4]; 4],
+        camera_position: [f32; 3],
+    ) -> Arc<PrimaryAutoCommandBuffer> {
+        let framebuffer = self.framebuffers[image_index].clone();
+        let mut builder = AutoCommandBufferBuilder::primary(
+            &self.allocators.command_buffer,
+            self.queue.queue_family_index(),
+            CommandBufferUsage::OneTimeSubmit,
+        )
+        .unwrap();
+        match asset {
+            Asset::Basic(position_buffer, normal_buffer, color) => {
+                let uniform_subbuffer = self.uniform_buffer.allocate_sized().unwrap();
+                *uniform_subbuffer.write().unwrap() = basic_vertex_shader::UniformBufferObject {
+                    model: item_pos,
+                    view_proj: view_proj,
+                    color: *color,
+                    camera_position: camera_position,
+                };
+                let layout = self.pipelines.basic.layout().set_layouts().get(0).unwrap();
+                let descriptor_set = PersistentDescriptorSet::new(
+                    &self.allocators.descriptor_set,
+                    layout.clone(),
+                    [WriteDescriptorSet::buffer(0, uniform_subbuffer)],
+                )
+                .unwrap();
+                builder
+                    .begin_render_pass(
+                        RenderPassBeginInfo {
+                            clear_values: vec![
+                                Some([0.0, 0.0, 0.0, 1.0].into()),
+                                Some(1f32.into()),
+                            ],
+                            ..RenderPassBeginInfo::framebuffer(framebuffer.clone())
+                        },
+                        SubpassContents::Inline,
+                    )
+                    .unwrap()
+                    .bind_pipeline_graphics(self.pipelines.basic.clone())
+                    .bind_descriptor_sets(
+                        PipelineBindPoint::Graphics,
+                        self.pipelines.basic.layout().clone(),
+                        0,
+                        descriptor_set,
+                    )
+                    .bind_vertex_buffers(0, (position_buffer.clone(), normal_buffer.clone()))
+                    .draw(position_buffer.len() as u32, 1, 0, 0)
+                    .unwrap();
+            }
+            _ => {
+                // TODO
+                panic!("asset type not implemented yet");
+            }
+        }
+        builder.end_render_pass().unwrap();
+
+        Arc::new(builder.build().unwrap())
     }
 }
 
@@ -422,53 +481,4 @@ fn get_framebuffers(
             .unwrap()
         })
         .collect::<Vec<_>>()
-}
-
-fn get_command_buffer(
-    allocators: &AllocatorCollection,
-    queue: Arc<Queue>,
-    pipelines: &PipelineCollection,
-    framebuffer: Arc<Framebuffer>,
-    asset: &Asset,
-    uniform_buffer: Subbuffer<basic_vertex_shader::UniformBufferObject>,
-) -> Arc<PrimaryAutoCommandBuffer> {
-    let mut builder = AutoCommandBufferBuilder::primary(
-        &allocators.command_buffer,
-        queue.queue_family_index(),
-        CommandBufferUsage::OneTimeSubmit,
-    )
-    .unwrap();
-    let layout = pipelines.basic.layout().set_layouts().get(0).unwrap();
-    let descriptor_set = PersistentDescriptorSet::new(
-        &allocators.descriptor_set,
-        layout.clone(),
-        [WriteDescriptorSet::buffer(0, uniform_buffer)],
-    )
-    .unwrap();
-    if let Asset::Basic(position_buffer, normal_buffer, color) = asset {
-        builder
-            .begin_render_pass(
-                RenderPassBeginInfo {
-                    clear_values: vec![Some([0.0, 0.0, 0.0, 1.0].into()), Some(1f32.into())],
-                    ..RenderPassBeginInfo::framebuffer(framebuffer.clone())
-                },
-                SubpassContents::Inline,
-            )
-            .unwrap()
-            .bind_pipeline_graphics(pipelines.basic.clone())
-            .bind_descriptor_sets(
-                PipelineBindPoint::Graphics,
-                pipelines.basic.layout().clone(),
-                0,
-                descriptor_set,
-            )
-            .bind_vertex_buffers(0, (position_buffer.clone(), normal_buffer.clone()))
-            .draw(position_buffer.len() as u32, 1, 0, 0)
-            .unwrap();
-    } else {
-        panic!("asset type not implemented yet");
-    }
-    builder.end_render_pass().unwrap();
-
-    Arc::new(builder.build().unwrap())
 }
