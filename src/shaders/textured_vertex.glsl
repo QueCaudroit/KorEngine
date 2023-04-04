@@ -17,4 +17,5 @@ void main() {
     vec4 world_position = ubo.model * vec4(position, 1.0);
     gl_Position = ubo.view_proj * world_position;
     shade = max(dot(normalize(ubo.camera_position), normal), 0.1);
+    tex_coords = tex_coords_in;
 }

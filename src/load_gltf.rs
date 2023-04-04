@@ -14,6 +14,7 @@ use vulkano::{
 
 use crate::engine::Engine;
 use crate::engine::{Normal, Position};
+use crate::format_converter::convert_R8G8B8;
 
 pub enum SamplerMode {
     Default,
@@ -389,37 +390,39 @@ impl Engine {
             .then_signal_fence_and_flush()
             .unwrap();
         future.wait(None).unwrap();
-        let (array_layers, format) = match image_data.format {
-            GltfFormat::R16 => (1, Format::R16_UINT),
-            GltfFormat::R8 => (1, Format::R8_UINT),
-            GltfFormat::R16G16 => (2, Format::R16G16_UINT),
-            GltfFormat::R8G8 => (2, Format::R8G8_UINT),
-            GltfFormat::R16G16B16 => (3, Format::R16G16B16_UINT),
-            GltfFormat::R8G8B8 => (3, Format::R8G8B8_UINT),
-            GltfFormat::R32G32B32FLOAT => (3, Format::R32G32B32_SFLOAT),
-            GltfFormat::R16G16B16A16 => (4, Format::R16G16B16A16_UINT),
-            GltfFormat::R8G8B8A8 => (4, Format::R8G8B8A8_UINT),
-            GltfFormat::R32G32B32A32FLOAT => (4, Format::R32G32B32A32_SFLOAT),
+        let data = match image_data.format {
+            GltfFormat::R8G8B8 => convert_R8G8B8(&image_data.pixels),
+            _ => {
+                panic!("texture format not implemented")
+            }
         };
         let dimensions = ImageDimensions::Dim2d {
             width: image_data.width,
             height: image_data.height,
-            array_layers: array_layers,
+            array_layers: 1,
         };
-        let image = ImmutableImage::from_iter(
-            &self.allocators.memory,
-            image_data.pixels.iter().map(|data| *data),
-            dimensions,
-            MipmapsCount::Log2,
-            format,
-            &mut AutoCommandBufferBuilder::primary(
-                &self.allocators.command_buffer,
-                self.queue.queue_family_index(),
-                CommandBufferUsage::OneTimeSubmit,
-            )
-            .unwrap(),
+        let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
+            &self.allocators.command_buffer,
+            self.queue.queue_family_index(),
+            CommandBufferUsage::OneTimeSubmit,
         )
         .unwrap();
+        let image = ImmutableImage::from_iter(
+            &self.allocators.memory,
+            data,
+            dimensions,
+            MipmapsCount::Log2,
+            Format::B8G8R8A8_UNORM,
+            &mut command_buffer_builder,
+        )
+        .unwrap();
+        let command_buffer = command_buffer_builder.build().unwrap();
+        let future = sync::now(self.device.clone())
+            .then_execute(self.queue.clone(), command_buffer)
+            .unwrap()
+            .then_signal_fence_and_flush()
+            .unwrap();
+        future.wait(None).unwrap();
         (tex_coord, ImageView::new_default(image).unwrap())
     }
 }

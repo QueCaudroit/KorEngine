@@ -21,6 +21,7 @@ use vulkano::{
     memory::allocator::MemoryAllocator,
     pipeline::{graphics::vertex_input::Vertex, Pipeline, PipelineBindPoint},
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass},
+    sampler::{Sampler, SamplerCreateInfo},
     swapchain::{
         acquire_next_image, AcquireError, Surface, SurfaceCapabilities, Swapchain,
         SwapchainCreateInfo, SwapchainCreationError, SwapchainPresentInfo,
@@ -41,7 +42,7 @@ use crate::{
     geometry::{extract_translation, get_perspective, get_reverse_transform, matrix_mult},
     load_gltf::Asset,
     pipeline::PipelineCollection,
-    shaders::basic_vertex_shader,
+    shaders::{basic_vertex_shader, textured_vertex_shader},
 };
 
 #[derive(BufferContents, Vertex)]
@@ -79,7 +80,7 @@ pub trait GameScene {
 pub fn run(event_loop: EventLoop<()>, window: Window, gamescene: Box<dyn GameScene>) {
     let window = Arc::new(window);
     let mut engine = Engine::new(window.clone(), gamescene);
-    engine.load_gltf("TODO", "./monkey.glb", "Suzanne");
+    engine.load_gltf("TODO", "./Fox.glb", "fox1");
     let mut recreate_swapchain = false;
     window.set_visible(true);
     event_loop.run(move |event, _, control_flow| match event {
@@ -129,6 +130,7 @@ pub struct Engine {
     pub previous_frame_end: Box<dyn GpuFuture>,
     pub assets: HashMap<String, Asset>,
     pub uniform_buffer: SubbufferAllocator,
+    pub sampler: Arc<Sampler>,
 }
 
 impl Engine {
@@ -166,6 +168,9 @@ impl Engine {
             },
         );
         let previous_frame_end = sync::now(device.clone()).boxed();
+
+        let sampler =
+            Sampler::new(device.clone(), SamplerCreateInfo::simple_repeat_linear()).unwrap();
         Engine {
             surface,
             swapchain,
@@ -184,6 +189,7 @@ impl Engine {
             previous_frame_end,
             assets: HashMap::new(),
             uniform_buffer,
+            sampler,
         }
     }
 
@@ -267,15 +273,10 @@ impl Engine {
             )
             .then_signal_fence_and_flush();
 
-        match future {
-            Ok(value) => self.previous_frame_end = value.boxed(),
-            Err(FlushError::OutOfDate) => {
-                return true;
-            }
-            Err(e) => {
-                println!("Failed to flush future: {:?}", e);
-            }
-        };
+        if matches!(future, Err(FlushError::OutOfDate)) {
+            return true;
+        }
+        self.previous_frame_end = future.expect("Failed to flush future").boxed();
         false
     }
 
@@ -333,9 +334,62 @@ impl Engine {
                     .draw(position_buffer.len() as u32, 1, 0, 0)
                     .unwrap();
             }
-            _ => {
-                // TODO
-                panic!("asset type not implemented yet");
+            Asset::Textured(position_buffer, normal_buffer, texture_coord, texture) => {
+                let uniform_subbuffer = self.uniform_buffer.allocate_sized().unwrap();
+                *uniform_subbuffer.write().unwrap() = textured_vertex_shader::UniformBufferObject {
+                    model: item_pos,
+                    view_proj: view_proj,
+                    camera_position: camera_position,
+                };
+                let layout = self
+                    .pipelines
+                    .textured
+                    .layout()
+                    .set_layouts()
+                    .get(0)
+                    .unwrap();
+                let descriptor_set = PersistentDescriptorSet::new(
+                    &self.allocators.descriptor_set,
+                    layout.clone(),
+                    [
+                        WriteDescriptorSet::buffer(0, uniform_subbuffer),
+                        WriteDescriptorSet::image_view_sampler(
+                            1,
+                            texture.clone(),
+                            self.sampler.clone(),
+                        ),
+                    ],
+                )
+                .unwrap();
+                builder
+                    .begin_render_pass(
+                        RenderPassBeginInfo {
+                            clear_values: vec![
+                                Some([0.0, 0.0, 0.0, 1.0].into()),
+                                Some(1f32.into()),
+                            ],
+                            ..RenderPassBeginInfo::framebuffer(framebuffer.clone())
+                        },
+                        SubpassContents::Inline,
+                    )
+                    .unwrap()
+                    .bind_pipeline_graphics(self.pipelines.textured.clone())
+                    .bind_descriptor_sets(
+                        PipelineBindPoint::Graphics,
+                        self.pipelines.textured.layout().clone(),
+                        0,
+                        descriptor_set,
+                    )
+                    .bind_vertex_buffers(
+                        0,
+                        (
+                            position_buffer.clone(),
+                            normal_buffer.clone(),
+                            texture_coord.clone(),
+                        ),
+                    )
+                    .draw(position_buffer.len() as u32, 1, 0, 0)
+                    .unwrap();
             }
         }
         builder.end_render_pass().unwrap();
