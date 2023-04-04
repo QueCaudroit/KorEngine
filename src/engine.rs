@@ -35,7 +35,7 @@ use crate::{
     allocators::AllocatorCollection,
     camera::Camera,
     geometry::{extract_translation, get_perspective, get_reverse_transform, matrix_mult},
-    load_gltf::{load_gltf, Asset},
+    load_gltf::Asset,
     pipeline::PipelineCollection,
     shaders::basic_vertex_shader,
 };
@@ -75,12 +75,7 @@ pub trait GameScene {
 pub fn run(event_loop: EventLoop<()>, window: Window, gamescene: Box<dyn GameScene>) {
     let window = Arc::new(window);
     let mut engine = Engine::new(window.clone(), gamescene);
-
-    engine.assets.insert(
-        "TODO".to_owned(),
-        load_gltf(&engine, "./monkey.glb", "Suzanne"),
-    );
-
+    engine.load_gltf("TODO", "./monkey.glb", "Suzanne");
     let mut recreate_swapchain = false;
     window.set_visible(true);
     event_loop.run(move |event, _, control_flow| match event {
@@ -242,7 +237,6 @@ impl Engine {
             extract_translation(get_reverse_transform(matrix_mult(*item_pos, camera_view)));
         // TODO use CPUAccessibleBuffer for uniforms
         // TODO better define engine api
-        // TODO merge load functions
 
         let uniform_buffer =
             CpuBufferPool::<basic_vertex_shader::ty::UniformBufferObject>::uniform_buffer(
