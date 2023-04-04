@@ -1,7 +1,9 @@
-use bytemuck::{Pod, Zeroable};
 use std::{collections::HashMap, f32::consts::FRAC_PI_2, mem, sync::Arc, time::Instant};
 use vulkano::{
-    buffer::{cpu_pool::CpuBufferPoolSubbuffer, CpuBufferPool, TypedBufferAccess},
+    buffer::{
+        allocator::{SubbufferAllocator, SubbufferAllocatorCreateInfo},
+        BufferContents, BufferUsage, Subbuffer,
+    },
     command_buffer::{
         AutoCommandBufferBuilder, CommandBufferUsage, PrimaryAutoCommandBuffer,
         RenderPassBeginInfo, SubpassContents,
@@ -9,13 +11,13 @@ use vulkano::{
     descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
     device::{
         physical::{PhysicalDevice, PhysicalDeviceType},
-        Device, DeviceCreateInfo, DeviceExtensions, Features, Queue, QueueCreateInfo,
+        Device, DeviceCreateInfo, DeviceExtensions, Features, Queue, QueueCreateInfo, QueueFlags,
     },
     format::Format,
     image::{view::ImageView, AttachmentImage, ImageAccess, ImageUsage, SwapchainImage},
     instance::{Instance, InstanceCreateInfo},
     memory::allocator::MemoryAllocator,
-    pipeline::{Pipeline, PipelineBindPoint},
+    pipeline::{graphics::vertex_input::Vertex, Pipeline, PipelineBindPoint},
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass},
     swapchain::{
         acquire_next_image, AcquireError, Surface, SurfaceCapabilities, Swapchain,
@@ -40,26 +42,26 @@ use crate::{
     shaders::basic_vertex_shader,
 };
 
+#[derive(BufferContents, Vertex)]
 #[repr(C)]
-#[derive(Default, Copy, Clone, Zeroable, Pod, Debug)]
 pub struct Position {
+    #[format(R32G32B32_SFLOAT)]
     pub position: [f32; 3],
 }
-vulkano::impl_vertex!(Position, position);
 
+#[derive(BufferContents, Vertex)]
 #[repr(C)]
-#[derive(Default, Copy, Clone, Zeroable, Pod, Debug)]
 pub struct Normal {
+    #[format(R32G32B32_SFLOAT)]
     pub normal: [f32; 3],
 }
-vulkano::impl_vertex!(Normal, normal);
 
+#[derive(BufferContents, Vertex)]
 #[repr(C)]
-#[derive(Default, Copy, Clone, Zeroable, Pod, Debug)]
 pub struct TextureCoord {
+    #[format(R32G32_SFLOAT)]
     pub tex_coords_in: [f32; 2],
 }
-vulkano::impl_vertex!(TextureCoord, tex_coords_in);
 
 pub enum GameSceneState {
     Continue,
@@ -130,7 +132,7 @@ impl Engine {
     fn new(window: Arc<Window>, gamescene: Box<dyn GameScene>) -> Self {
         let (surface, caps, image_format, device, queue, render_pass) = engine_init(window.clone());
         let allocators = AllocatorCollection::new(device.clone());
-        let composite_alpha = caps.supported_composite_alpha.iter().next().unwrap();
+        let composite_alpha = caps.supported_composite_alpha.into_iter().next().unwrap();
         let (swapchain, images) = Swapchain::new(
             device.clone(),
             surface.clone(),
@@ -138,10 +140,7 @@ impl Engine {
                 min_image_count: caps.min_image_count + 1,
                 image_format: Some(image_format),
                 image_extent: window.inner_size().into(),
-                image_usage: ImageUsage {
-                    color_attachment: true,
-                    ..ImageUsage::empty()
-                },
+                image_usage: ImageUsage::COLOR_ATTACHMENT,
                 composite_alpha,
                 ..Default::default()
             },
@@ -238,18 +237,20 @@ impl Engine {
         // TODO use CPUAccessibleBuffer for uniforms
         // TODO better define engine api
 
-        let uniform_buffer =
-            CpuBufferPool::<basic_vertex_shader::ty::UniformBufferObject>::uniform_buffer(
-                self.allocators.memory.clone(),
-            );
-        let uniform_subbuffer = uniform_buffer
-            .from_data(basic_vertex_shader::ty::UniformBufferObject {
-                model: *item_pos,
-                view_proj: matrix_mult(camera_view, projection),
-                color: [0.8, 0.8, 0.8, 1.0],
-                camera_position: camera_position,
-            })
-            .unwrap();
+        let uniform_buffer = SubbufferAllocator::new(
+            self.allocators.memory.clone(),
+            SubbufferAllocatorCreateInfo {
+                buffer_usage: BufferUsage::UNIFORM_BUFFER,
+                ..Default::default()
+            },
+        );
+        let uniform_subbuffer = uniform_buffer.allocate_sized().unwrap();
+        *uniform_subbuffer.write().unwrap() = basic_vertex_shader::UniformBufferObject {
+            model: *item_pos,
+            view_proj: matrix_mult(camera_view, projection),
+            color: [0.8, 0.8, 0.8, 1.0],
+            camera_position: camera_position,
+        };
         let command_buffer = get_command_buffer(
             &self.allocators,
             self.queue.clone(),
@@ -354,7 +355,8 @@ fn select_physical_device(
                 .iter()
                 .enumerate()
                 .position(|(i, q)| {
-                    q.queue_flags.graphics && p.surface_support(i as u32, &surface).unwrap_or(false)
+                    q.queue_flags.intersects(QueueFlags::GRAPHICS)
+                        && p.surface_support(i as u32, &surface).unwrap_or(false)
                 })
                 .map(|i| (p, i as u32))
         })
@@ -428,7 +430,7 @@ fn get_command_buffer(
     pipelines: &PipelineCollection,
     framebuffer: Arc<Framebuffer>,
     asset: &Asset,
-    uniform_buffer: Arc<CpuBufferPoolSubbuffer<basic_vertex_shader::ty::UniformBufferObject>>,
+    uniform_buffer: Subbuffer<basic_vertex_shader::UniformBufferObject>,
 ) -> Arc<PrimaryAutoCommandBuffer> {
     let mut builder = AutoCommandBufferBuilder::primary(
         &allocators.command_buffer,

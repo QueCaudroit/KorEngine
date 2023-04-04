@@ -12,11 +12,7 @@ pub mod basic_fragment_shader {
 pub mod basic_vertex_shader {
     vulkano_shaders::shader! {
         ty: "vertex",
-        path: "src/shaders/basic_vertex.glsl",
-        types_meta: {
-            use bytemuck::{Pod, Zeroable};
-            #[derive(Clone, Copy, Default, Zeroable, Pod)]
-        }
+        path: "src/shaders/basic_vertex.glsl"
     }
 }
 
@@ -24,10 +20,6 @@ pub mod textured_vertex_shader {
     vulkano_shaders::shader! {
         ty: "vertex",
         path: "src/shaders/textured_vertex.glsl",
-        types_meta: {
-            use bytemuck::{Pod, Zeroable};
-            #[derive(Clone, Copy, Default, Zeroable, Pod)]
-        }
     }
 }
 
@@ -35,10 +27,6 @@ pub mod textured_fragment_shader {
     vulkano_shaders::shader! {
         ty: "fragment",
         path: "src/shaders/textured_fragment.glsl",
-        types_meta: {
-            use bytemuck::{Pod, Zeroable};
-            #[derive(Clone, Copy, Default, Zeroable, Pod)]
-        }
     }
 }
 

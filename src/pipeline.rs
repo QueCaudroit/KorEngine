@@ -6,7 +6,7 @@ use vulkano::{
         graphics::{
             depth_stencil::DepthStencilState,
             input_assembly::InputAssemblyState,
-            vertex_input::BuffersDefinition,
+            vertex_input::Vertex,
             viewport::{Viewport, ViewportState},
         },
         ComputePipeline, GraphicsPipeline,
@@ -69,11 +69,7 @@ fn build_basic_pipeline(
     dimensions: &[u32; 2],
 ) -> Arc<GraphicsPipeline> {
     GraphicsPipeline::start()
-        .vertex_input_state(
-            BuffersDefinition::new()
-                .vertex::<Position>()
-                .vertex::<Normal>(),
-        )
+        .vertex_input_state([Position::per_vertex(), Normal::per_vertex()])
         .vertex_shader(shaders.basic_vertex.entry_point("main").unwrap(), ())
         .input_assembly_state(InputAssemblyState::new())
         .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([
@@ -97,12 +93,11 @@ fn build_textured_pipeline(
     dimensions: &[u32; 2],
 ) -> Arc<GraphicsPipeline> {
     GraphicsPipeline::start()
-        .vertex_input_state(
-            BuffersDefinition::new()
-                .vertex::<Position>()
-                .vertex::<Normal>()
-                .vertex::<TextureCoord>(),
-        )
+        .vertex_input_state([
+            Position::per_vertex(),
+            Normal::per_vertex(),
+            TextureCoord::per_vertex(),
+        ])
         .vertex_shader(shaders.textured_vertex.entry_point("main").unwrap(), ())
         .input_assembly_state(InputAssemblyState::new())
         .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([

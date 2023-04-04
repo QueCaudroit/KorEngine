@@ -2,11 +2,12 @@ use std::sync::Arc;
 
 use gltf::image::{Data, Format as GltfFormat};
 use vulkano::{
-    buffer::{BufferUsage, CpuAccessibleBuffer, DeviceLocalBuffer, TypedBufferAccess},
+    buffer::{Buffer, BufferCreateInfo, BufferUsage, Subbuffer},
     command_buffer::{AutoCommandBufferBuilder, CommandBufferUsage, CopyBufferInfo},
     descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
     format::Format,
     image::{view::ImageView, ImageDimensions, ImmutableImage, MipmapsCount},
+    memory::allocator::{AllocationCreateInfo, MemoryUsage},
     pipeline::{Pipeline, PipelineBindPoint},
     sync::{self, GpuFuture},
 };
@@ -19,15 +20,11 @@ pub enum SamplerMode {
 }
 
 pub enum Asset {
-    Basic(
-        Arc<DeviceLocalBuffer<[Position]>>,
-        Arc<DeviceLocalBuffer<[Normal]>>,
-        [f32; 4],
-    ),
+    Basic(Subbuffer<[Position]>, Subbuffer<[Normal]>, [f32; 4]),
     Textured(
-        Arc<DeviceLocalBuffer<[Position]>>,
-        Arc<DeviceLocalBuffer<[Normal]>>,
-        Arc<DeviceLocalBuffer<[[f32; 2]]>>,
+        Subbuffer<[Position]>,
+        Subbuffer<[Normal]>,
+        Subbuffer<[[f32; 2]]>,
         Arc<ImageView<ImmutableImage>>,
     ),
 }
@@ -50,29 +47,32 @@ impl Engine {
         let reader = primitive.reader(|buffer| Some(&gltf_buffers[buffer.index()]));
         let index_buffer_option = match reader.read_indices() {
             Some(buffer) => Some(
-                CpuAccessibleBuffer::from_iter(
+                Buffer::from_iter(
                     &self.allocators.memory,
-                    BufferUsage {
-                        storage_buffer: true,
-                        index_buffer: true,
-                        ..BufferUsage::empty()
+                    BufferCreateInfo {
+                        usage: BufferUsage::STORAGE_BUFFER.union(BufferUsage::INDEX_BUFFER),
+                        ..Default::default()
                     },
-                    false,
+                    AllocationCreateInfo {
+                        usage: MemoryUsage::Upload,
+                        ..Default::default()
+                    },
                     buffer.into_u32(),
                 )
                 .unwrap(),
             ),
             None => None,
         };
-        let vertex_buffer_temp = CpuAccessibleBuffer::from_iter(
+        let vertex_buffer_temp = Buffer::from_iter(
             &self.allocators.memory,
-            BufferUsage {
-                storage_buffer: true,
-                vertex_buffer: true,
-                transfer_src: true,
-                ..BufferUsage::empty()
+            BufferCreateInfo {
+                usage: BufferUsage::STORAGE_BUFFER.union(BufferUsage::TRANSFER_SRC),
+                ..Default::default()
             },
-            false,
+            AllocationCreateInfo {
+                usage: MemoryUsage::Upload,
+                ..Default::default()
+            },
             reader
                 .read_positions()
                 .unwrap()
@@ -81,14 +81,16 @@ impl Engine {
         .unwrap();
         let normal_buffer_option = match reader.read_normals() {
             Some(buffer) => Some(
-                CpuAccessibleBuffer::from_iter(
+                Buffer::from_iter(
                     &self.allocators.memory,
-                    BufferUsage {
-                        storage_buffer: true,
-                        index_buffer: true,
-                        ..BufferUsage::empty()
+                    BufferCreateInfo {
+                        usage: BufferUsage::STORAGE_BUFFER.union(BufferUsage::TRANSFER_SRC),
+                        ..Default::default()
                     },
-                    false,
+                    AllocationCreateInfo {
+                        usage: MemoryUsage::Upload,
+                        ..Default::default()
+                    },
                     buffer.map(|n| Normal { normal: n }),
                 )
                 .unwrap(),
@@ -106,14 +108,16 @@ impl Engine {
             .pbr_metallic_roughness()
             .base_color_texture()
         {
-            let tex_coord_temp = CpuAccessibleBuffer::from_iter(
+            let tex_coord_temp = Buffer::from_iter(
                 &self.allocators.memory,
-                BufferUsage {
-                    transfer_src: true,
-                    storage_buffer: true,
-                    ..BufferUsage::empty()
+                BufferCreateInfo {
+                    usage: BufferUsage::STORAGE_BUFFER.union(BufferUsage::TRANSFER_SRC),
+                    ..Default::default()
                 },
-                false,
+                AllocationCreateInfo {
+                    usage: MemoryUsage::Upload,
+                    ..Default::default()
+                },
                 reader
                     .read_tex_coords(texture.tex_coord())
                     .unwrap()
@@ -140,23 +144,26 @@ impl Engine {
 
     fn load_vertex(
         &self,
-        vertex_buffer_temp: Arc<CpuAccessibleBuffer<[Position]>>,
-        index_buffer_option: &Option<Arc<CpuAccessibleBuffer<[u32]>>>,
-    ) -> Arc<DeviceLocalBuffer<[Position]>> {
+        vertex_buffer_temp: Subbuffer<[Position]>,
+        index_buffer_option: &Option<Subbuffer<[u32]>>,
+    ) -> Subbuffer<[Position]> {
         let vertex_len = match &index_buffer_option {
             Some(index_buffer) => index_buffer.len(),
             None => vertex_buffer_temp.len(),
         };
-        let vertex_buffer = DeviceLocalBuffer::<[Position]>::array(
+        let vertex_buffer = Buffer::new_slice::<Position>(
             &self.allocators.memory,
-            vertex_len,
-            BufferUsage {
-                storage_buffer: true,
-                vertex_buffer: true,
-                transfer_dst: true,
-                ..BufferUsage::empty()
+            BufferCreateInfo {
+                usage: BufferUsage::STORAGE_BUFFER
+                    .union(BufferUsage::TRANSFER_DST)
+                    .union(BufferUsage::VERTEX_BUFFER),
+                ..Default::default()
             },
-            [self.queue.queue_family_index()],
+            AllocationCreateInfo {
+                usage: MemoryUsage::DeviceOnly,
+                ..Default::default()
+            },
+            vertex_len,
         )
         .unwrap();
 
@@ -215,21 +222,24 @@ impl Engine {
 
     fn load_normal(
         &self,
-        vertex_buffer: Arc<DeviceLocalBuffer<[Position]>>,
-        index_buffer_option: &Option<Arc<CpuAccessibleBuffer<[u32]>>>,
-        normal_buffer_option: &Option<Arc<CpuAccessibleBuffer<[Normal]>>>,
-    ) -> Arc<DeviceLocalBuffer<[Normal]>> {
+        vertex_buffer: Subbuffer<[Position]>,
+        index_buffer_option: &Option<Subbuffer<[u32]>>,
+        normal_buffer_option: &Option<Subbuffer<[Normal]>>,
+    ) -> Subbuffer<[Normal]> {
         let vertex_len = vertex_buffer.len();
-        let normal_buffer = DeviceLocalBuffer::<[Normal]>::array(
+        let normal_buffer = Buffer::new_slice::<Normal>(
             &self.allocators.memory,
-            vertex_len,
-            BufferUsage {
-                storage_buffer: true,
-                vertex_buffer: true,
-                transfer_dst: true,
-                ..BufferUsage::empty()
+            BufferCreateInfo {
+                usage: BufferUsage::STORAGE_BUFFER
+                    .union(BufferUsage::TRANSFER_DST)
+                    .union(BufferUsage::VERTEX_BUFFER),
+                ..Default::default()
             },
-            [self.queue.queue_family_index()],
+            AllocationCreateInfo {
+                usage: MemoryUsage::DeviceOnly,
+                ..Default::default()
+            },
+            vertex_len,
         )
         .unwrap();
         let mut builder = AutoCommandBufferBuilder::primary(
@@ -311,26 +321,25 @@ impl Engine {
     fn load_texture(
         &self,
         vertex_len: u64,
-        texture_coord_temp: Arc<CpuAccessibleBuffer<[[f32; 2]]>>,
-        index_buffer_option: &Option<Arc<CpuAccessibleBuffer<[u32]>>>,
+        texture_coord_temp: Subbuffer<[[f32; 2]]>,
+        index_buffer_option: &Option<Subbuffer<[u32]>>,
         image_data: &Data,
-    ) -> (
-        Arc<DeviceLocalBuffer<[[f32; 2]]>>,
-        Arc<ImageView<ImmutableImage>>,
-    ) {
-        let tex_coord = DeviceLocalBuffer::<[[f32; 2]]>::array(
+    ) -> (Subbuffer<[[f32; 2]]>, Arc<ImageView<ImmutableImage>>) {
+        let tex_coord = Buffer::new_slice::<[f32; 2]>(
             &self.allocators.memory,
-            vertex_len,
-            BufferUsage {
-                vertex_buffer: true,
-                storage_buffer: true,
-                transfer_dst: true,
-                ..BufferUsage::empty()
+            BufferCreateInfo {
+                usage: BufferUsage::STORAGE_BUFFER
+                    .union(BufferUsage::TRANSFER_DST)
+                    .union(BufferUsage::VERTEX_BUFFER),
+                ..Default::default()
             },
-            [self.queue.queue_family_index()],
+            AllocationCreateInfo {
+                usage: MemoryUsage::DeviceOnly,
+                ..Default::default()
+            },
+            vertex_len,
         )
         .unwrap();
-
         let mut builder = AutoCommandBufferBuilder::primary(
             &self.allocators.command_buffer,
             self.queue.queue_family_index(),
