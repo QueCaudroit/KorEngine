@@ -119,7 +119,7 @@ fn build_unindex_vec3_pipeline(
     shaders: &ShaderCollection,
 ) -> Arc<ComputePipeline> {
     ComputePipeline::new(
-        device.clone(),
+        device,
         shaders.unindex_vec3.entry_point("main").unwrap(),
         &(),
         None,
@@ -133,7 +133,7 @@ fn build_unindex_vec2_pipeline(
     shaders: &ShaderCollection,
 ) -> Arc<ComputePipeline> {
     ComputePipeline::new(
-        device.clone(),
+        device,
         shaders.unindex_vec2.entry_point("main").unwrap(),
         &(),
         None,
@@ -144,7 +144,7 @@ fn build_unindex_vec2_pipeline(
 
 fn build_normal_pipeline(device: Arc<Device>, shaders: &ShaderCollection) -> Arc<ComputePipeline> {
     ComputePipeline::new(
-        device.clone(),
+        device,
         shaders.normal.entry_point("main").unwrap(),
         &(),
         None,

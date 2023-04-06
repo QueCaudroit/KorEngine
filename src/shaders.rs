@@ -63,7 +63,7 @@ pub struct ShaderCollection {
 
 impl ShaderCollection {
     pub fn new(device: Arc<vulkano::device::Device>) -> Self {
-        return ShaderCollection {
+        ShaderCollection {
             basic_vertex: basic_vertex_shader::load(device.clone())
                 .expect("failed to create shader module"),
             basic_fragment: basic_fragment_shader::load(device.clone())
@@ -77,6 +77,6 @@ impl ShaderCollection {
                 .expect("failed to create shader module"),
             unindex_vec2: unindex_vec2_shader::load(device)
                 .expect("failed to create shader module"),
-        };
+        }
     }
 }

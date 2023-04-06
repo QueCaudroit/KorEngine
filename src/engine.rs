@@ -1,4 +1,5 @@
 // TODO better define engine load api
+// TODO add support for multiple assets and primitives
 
 use std::{collections::HashMap, f32::consts::FRAC_PI_2, mem, sync::Arc, time::Instant};
 use vulkano::{
@@ -255,7 +256,7 @@ impl Engine {
 
         let command_buffer = self.get_command_buffer(
             image_i,
-            &self.assets.get(item_name.to_owned()).unwrap(),
+            self.assets.get(item_name.to_owned()).unwrap(),
             view_proj,
             *item_pos,
             camera_position,
@@ -265,7 +266,7 @@ impl Engine {
         mem::swap(&mut temp_future, &mut self.previous_frame_end);
         let future = temp_future
             .join(acquire_future)
-            .then_execute(self.queue.clone(), command_buffer.clone())
+            .then_execute(self.queue.clone(), command_buffer)
             .unwrap()
             .then_swapchain_present(
                 self.queue.clone(),
@@ -300,9 +301,9 @@ impl Engine {
                 let uniform_subbuffer = self.uniform_buffer.allocate_sized().unwrap();
                 *uniform_subbuffer.write().unwrap() = basic_vertex_shader::UniformBufferObject {
                     model: item_pos,
-                    view_proj: view_proj,
+                    view_proj,
                     color: *color,
-                    camera_position: camera_position,
+                    camera_position,
                 };
                 let layout = self.pipelines.basic.layout().set_layouts().get(0).unwrap();
                 let descriptor_set = PersistentDescriptorSet::new(
@@ -318,7 +319,7 @@ impl Engine {
                                 Some([0.0, 0.0, 0.0, 1.0].into()),
                                 Some(1f32.into()),
                             ],
-                            ..RenderPassBeginInfo::framebuffer(framebuffer.clone())
+                            ..RenderPassBeginInfo::framebuffer(framebuffer)
                         },
                         SubpassContents::Inline,
                     )
@@ -338,8 +339,8 @@ impl Engine {
                 let uniform_subbuffer = self.uniform_buffer.allocate_sized().unwrap();
                 *uniform_subbuffer.write().unwrap() = textured_vertex_shader::UniformBufferObject {
                     model: item_pos,
-                    view_proj: view_proj,
-                    camera_position: camera_position,
+                    view_proj,
+                    camera_position,
                 };
                 let layout = self
                     .pipelines
@@ -368,7 +369,7 @@ impl Engine {
                                 Some([0.0, 0.0, 0.0, 1.0].into()),
                                 Some(1f32.into()),
                             ],
-                            ..RenderPassBeginInfo::framebuffer(framebuffer.clone())
+                            ..RenderPassBeginInfo::framebuffer(framebuffer)
                         },
                         SubpassContents::Inline,
                     )
@@ -451,7 +452,7 @@ fn engine_init(
     .expect("failed to create device");
     let queue = queues.next().unwrap();
     let render_pass = get_render_pass(device.clone(), image_format);
-    return (surface, caps, image_format, device, queue, render_pass);
+    (surface, caps, image_format, device, queue, render_pass)
 }
 
 fn select_physical_device(
@@ -462,7 +463,7 @@ fn select_physical_device(
     let (physical_device, queue_family) = instance
         .enumerate_physical_devices()
         .unwrap()
-        .filter(|p| p.supported_extensions().contains(&device_extensions))
+        .filter(|p| p.supported_extensions().contains(device_extensions))
         .filter_map(|p| {
             p.queue_family_properties()
                 .iter()
@@ -487,7 +488,7 @@ fn select_physical_device(
 
 fn get_render_pass(device: Arc<Device>, image_format: Format) -> Arc<RenderPass> {
     vulkano::single_pass_renderpass!(
-        device.clone(),
+        device,
         attachments: {
             color: {
                 load: Clear,
@@ -517,8 +518,7 @@ fn get_framebuffers(
     dimensions: &[u32; 2],
 ) -> Vec<Arc<Framebuffer>> {
     let depth_buffer = ImageView::new_default(
-        AttachmentImage::transient(memory_allocator, dimensions.clone(), Format::D16_UNORM)
-            .unwrap(),
+        AttachmentImage::transient(memory_allocator, *dimensions, Format::D16_UNORM).unwrap(),
     )
     .unwrap();
     images

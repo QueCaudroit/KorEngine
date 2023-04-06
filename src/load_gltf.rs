@@ -46,24 +46,21 @@ impl Engine {
             .unwrap();
         let primitive = mesh.primitives().next().unwrap();
         let reader = primitive.reader(|buffer| Some(&gltf_buffers[buffer.index()]));
-        let index_buffer_option = match reader.read_indices() {
-            Some(buffer) => Some(
-                Buffer::from_iter(
-                    &self.allocators.memory,
-                    BufferCreateInfo {
-                        usage: BufferUsage::STORAGE_BUFFER.union(BufferUsage::INDEX_BUFFER),
-                        ..Default::default()
-                    },
-                    AllocationCreateInfo {
-                        usage: MemoryUsage::Upload,
-                        ..Default::default()
-                    },
-                    buffer.into_u32(),
-                )
-                .unwrap(),
-            ),
-            None => None,
-        };
+        let index_buffer_option = reader.read_indices().map(|buffer| {
+            Buffer::from_iter(
+                &self.allocators.memory,
+                BufferCreateInfo {
+                    usage: BufferUsage::STORAGE_BUFFER.union(BufferUsage::INDEX_BUFFER),
+                    ..Default::default()
+                },
+                AllocationCreateInfo {
+                    usage: MemoryUsage::Upload,
+                    ..Default::default()
+                },
+                buffer.into_u32(),
+            )
+            .unwrap()
+        });
         let vertex_buffer_temp = Buffer::from_iter(
             &self.allocators.memory,
             BufferCreateInfo {
@@ -80,24 +77,21 @@ impl Engine {
                 .map(|p| Position { position: p }),
         )
         .unwrap();
-        let normal_buffer_option = match reader.read_normals() {
-            Some(buffer) => Some(
-                Buffer::from_iter(
-                    &self.allocators.memory,
-                    BufferCreateInfo {
-                        usage: BufferUsage::STORAGE_BUFFER.union(BufferUsage::TRANSFER_SRC),
-                        ..Default::default()
-                    },
-                    AllocationCreateInfo {
-                        usage: MemoryUsage::Upload,
-                        ..Default::default()
-                    },
-                    buffer.map(|n| Normal { normal: n }),
-                )
-                .unwrap(),
-            ),
-            None => None,
-        };
+        let normal_buffer_option = reader.read_normals().map(|buffer| {
+            Buffer::from_iter(
+                &self.allocators.memory,
+                BufferCreateInfo {
+                    usage: BufferUsage::STORAGE_BUFFER.union(BufferUsage::TRANSFER_SRC),
+                    ..Default::default()
+                },
+                AllocationCreateInfo {
+                    usage: MemoryUsage::Upload,
+                    ..Default::default()
+                },
+                buffer.map(|n| Normal { normal: n }),
+            )
+            .unwrap()
+        });
         let vertex_buffer = self.load_vertex(vertex_buffer_temp, &index_buffer_option);
         let normal_buffer = self.load_normal(
             vertex_buffer.clone(),
@@ -133,13 +127,13 @@ impl Engine {
                 &index_buffer_option,
                 image_data,
             );
-            return Asset::Textured(vertex_buffer, normal_buffer, tex_coord, image);
+            Asset::Textured(vertex_buffer, normal_buffer, tex_coord, image)
         } else {
             let color = primitive
                 .material()
                 .pbr_metallic_roughness()
                 .base_color_factor();
-            return Asset::Basic(vertex_buffer, normal_buffer, color);
+            Asset::Basic(vertex_buffer, normal_buffer, color)
         }
     }
 
@@ -186,7 +180,7 @@ impl Engine {
                 &self.allocators.descriptor_set,
                 layout.clone(),
                 [
-                    WriteDescriptorSet::buffer(0, vertex_buffer_temp.clone()),
+                    WriteDescriptorSet::buffer(0, vertex_buffer_temp),
                     WriteDescriptorSet::buffer(1, index_buffer.clone()),
                     WriteDescriptorSet::buffer(2, vertex_buffer.clone()),
                 ],
@@ -218,7 +212,7 @@ impl Engine {
             .then_signal_fence_and_flush()
             .unwrap();
         future.wait(None).unwrap();
-        return vertex_buffer;
+        vertex_buffer
     }
 
     fn load_normal(
@@ -316,7 +310,7 @@ impl Engine {
             .then_signal_fence_and_flush()
             .unwrap();
         future.wait(None).unwrap();
-        return normal_buffer;
+        normal_buffer
     }
 
     fn load_texture(
@@ -359,7 +353,7 @@ impl Engine {
                 &self.allocators.descriptor_set,
                 layout.clone(),
                 [
-                    WriteDescriptorSet::buffer(0, texture_coord_temp.clone()),
+                    WriteDescriptorSet::buffer(0, texture_coord_temp),
                     WriteDescriptorSet::buffer(1, index_buffer.clone()),
                     WriteDescriptorSet::buffer(2, tex_coord.clone()),
                 ],

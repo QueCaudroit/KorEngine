@@ -11,5 +11,5 @@ pub fn get_logo() -> Option<Icon> {
             }
         }
     }
-    return None;
+    None
 }

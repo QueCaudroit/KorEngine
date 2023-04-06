@@ -14,10 +14,10 @@ pub struct AllocatorCollection {
 
 impl AllocatorCollection {
     pub fn new(device: Arc<Device>) -> Self {
-        return AllocatorCollection {
+        AllocatorCollection {
             memory: Arc::new(StandardMemoryAllocator::new_default(device.clone())),
             command_buffer: StandardCommandBufferAllocator::new(device.clone(), Default::default()),
-            descriptor_set: StandardDescriptorSetAllocator::new(device.clone()),
-        };
+            descriptor_set: StandardDescriptorSetAllocator::new(device),
+        }
     }
 }

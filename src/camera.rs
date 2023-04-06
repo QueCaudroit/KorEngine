@@ -7,17 +7,15 @@ pub enum Camera {
 
 impl Camera {
     pub fn get_view(&self) -> [[f32; 4]; 4] {
-        match self {
-            &Camera::LookAt(from, to) => {
+        match *self {
+            Camera::LookAt(from, to) => {
                 let (angle_x, angle_y) = look_at_from(to, from);
                 let translation = get_translation([-from[0], -from[1], -from[2]]);
                 let rotation_y = get_rotation_y(-angle_y);
                 let rotation_x = get_rotation_x(-angle_x);
-                return matrix_mult(translation, matrix_mult(rotation_y, rotation_x));
+                matrix_mult(translation, matrix_mult(rotation_y, rotation_x))
             }
-            &Camera::FromTransform(transform) => {
-                return transform;
-            }
+            Camera::FromTransform(transform) => transform,
         }
     }
 }
