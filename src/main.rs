@@ -1,4 +1,5 @@
 use engine::DisplayRequest;
+use geometry::get_translation;
 use logo::get_logo;
 use std::{f32::consts::TAU, time::Instant};
 use winit::{event_loop::EventLoop, window::WindowBuilder};
@@ -47,10 +48,19 @@ impl GameScene for Scene {
     fn display(&self) -> (&Camera, Vec<DisplayRequest>) {
         (
             &self.camera,
-            vec![DisplayRequest::InWorldSpace(
-                "TODO".to_owned(),
-                matrix_mult(get_scale_uniform(0.02), get_rotation_y(self.angle)),
-            )],
+            vec![
+                DisplayRequest::InWorldSpace(
+                    "fox".to_owned(),
+                    matrix_mult(get_scale_uniform(0.02), get_rotation_y(self.angle)),
+                ),
+                DisplayRequest::InWorldSpace(
+                    "monkey".to_owned(),
+                    matrix_mult(
+                        get_rotation_y(self.angle),
+                        get_translation([-3.5, 0.0, 0.0]),
+                    ),
+                ),
+            ],
         )
     }
 }

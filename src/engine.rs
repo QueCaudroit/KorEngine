@@ -1,4 +1,4 @@
-// TODO better define engine load api
+// TODO define engine load api
 // TODO add support for multiple assets and primitives
 
 use std::{collections::HashMap, f32::consts::FRAC_PI_2, mem, sync::Arc, time::Instant};
@@ -85,7 +85,9 @@ pub trait GameScene {
 pub fn run(event_loop: EventLoop<()>, window: Window, gamescene: Box<dyn GameScene>) {
     let window = Arc::new(window);
     let mut engine = Engine::new(window.clone(), gamescene);
-    engine.load_gltf("TODO", "./Fox.glb", "fox1");
+    // TODO stop hardcoding loaded assets
+    engine.load_gltf("monkey", "./monkey.glb", "Suzanne");
+    engine.load_gltf("fox", "./Fox.glb", "fox1");
     let mut recreate_swapchain = false;
     window.set_visible(true);
     event_loop.run(move |event, _, control_flow| match event {
@@ -251,55 +253,55 @@ impl Engine {
             return true;
         }
         let (camera, displayed_items) = self.gamescene.display();
-        match &displayed_items[0] {
-            DisplayRequest::InWorldSpace(item_name, item_pos) => {
-                let projection = get_perspective(FRAC_PI_2, 16.0 / 9.0, 0.1, 100.0);
-                let camera_view = camera.get_view();
-                let camera_position =
-                    extract_translation(get_reverse_transform(matrix_mult(*item_pos, camera_view)));
-                let view_proj = matrix_mult(camera_view, projection);
 
-                let command_buffer = self.get_command_buffer(
-                    image_i,
-                    self.assets.get(item_name).unwrap(),
-                    view_proj,
-                    *item_pos,
-                    camera_position,
-                );
-                self.previous_frame_end.cleanup_finished();
-                let mut temp_future = sync::now(self.device.clone()).boxed();
-                mem::swap(&mut temp_future, &mut self.previous_frame_end);
-                let future = temp_future
-                    .join(acquire_future)
-                    .then_execute(self.queue.clone(), command_buffer)
-                    .unwrap()
-                    .then_swapchain_present(
-                        self.queue.clone(),
-                        SwapchainPresentInfo::swapchain_image_index(
-                            self.swapchain.clone(),
-                            image_i as u32,
-                        ),
-                    )
-                    .then_signal_fence_and_flush();
+        let projection = get_perspective(FRAC_PI_2, 16.0 / 9.0, 0.1, 100.0);
+        let camera_view = camera.get_view();
+        let view_proj = matrix_mult(camera_view, projection);
 
-                if matches!(future, Err(FlushError::OutOfDate)) {
-                    return true;
+        let mut builder = self.init_command_buffer(image_i);
+        for displayed_item in displayed_items {
+            match &displayed_item {
+                DisplayRequest::InWorldSpace(item_name, item_pos) => {
+                    let camera_position = extract_translation(get_reverse_transform(matrix_mult(
+                        *item_pos,
+                        camera_view,
+                    )));
+                    self.add_asset_to_command_buffer(
+                        self.assets.get(item_name).unwrap(),
+                        view_proj,
+                        *item_pos,
+                        camera_position,
+                        &mut builder,
+                    );
                 }
-                self.previous_frame_end = future.expect("Failed to flush future").boxed();
             }
         }
+        let command_buffer = self.end_command_buffer(builder);
+        self.previous_frame_end.cleanup_finished();
+        let mut temp_future = sync::now(self.device.clone()).boxed();
+        mem::swap(&mut temp_future, &mut self.previous_frame_end);
 
+        let future = temp_future
+            .join(acquire_future)
+            .then_execute(self.queue.clone(), command_buffer)
+            .unwrap()
+            .then_swapchain_present(
+                self.queue.clone(),
+                SwapchainPresentInfo::swapchain_image_index(self.swapchain.clone(), image_i as u32),
+            )
+            .then_signal_fence_and_flush();
+
+        if matches!(future, Err(FlushError::OutOfDate)) {
+            return true;
+        }
+        self.previous_frame_end = future.expect("Failed to flush future").boxed();
         false
     }
 
-    fn get_command_buffer(
+    fn init_command_buffer(
         &self,
         image_index: usize,
-        asset: &Asset,
-        view_proj: [[f32; 4]; 4],
-        item_pos: [[f32; 4]; 4],
-        camera_position: [f32; 3],
-    ) -> Arc<PrimaryAutoCommandBuffer> {
+    ) -> AutoCommandBufferBuilder<PrimaryAutoCommandBuffer> {
         let framebuffer = self.framebuffers[image_index].clone();
         let mut builder = AutoCommandBufferBuilder::primary(
             &self.allocators.command_buffer,
@@ -307,6 +309,34 @@ impl Engine {
             CommandBufferUsage::OneTimeSubmit,
         )
         .unwrap();
+        builder
+            .begin_render_pass(
+                RenderPassBeginInfo {
+                    clear_values: vec![Some([0.0, 0.0, 0.0, 1.0].into()), Some(1f32.into())],
+                    ..RenderPassBeginInfo::framebuffer(framebuffer)
+                },
+                SubpassContents::Inline,
+            )
+            .unwrap();
+        builder
+    }
+
+    fn end_command_buffer(
+        &self,
+        mut builder: AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
+    ) -> PrimaryAutoCommandBuffer {
+        builder.end_render_pass().unwrap();
+        builder.build().unwrap()
+    }
+
+    fn add_asset_to_command_buffer(
+        &self,
+        asset: &Asset,
+        view_proj: [[f32; 4]; 4],
+        item_pos: [[f32; 4]; 4],
+        camera_position: [f32; 3],
+        builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
+    ) {
         match asset {
             Asset::Basic(position_buffer, normal_buffer, color) => {
                 let uniform_subbuffer = self.uniform_buffer.allocate_sized().unwrap();
@@ -324,17 +354,6 @@ impl Engine {
                 )
                 .unwrap();
                 builder
-                    .begin_render_pass(
-                        RenderPassBeginInfo {
-                            clear_values: vec![
-                                Some([0.0, 0.0, 0.0, 1.0].into()),
-                                Some(1f32.into()),
-                            ],
-                            ..RenderPassBeginInfo::framebuffer(framebuffer)
-                        },
-                        SubpassContents::Inline,
-                    )
-                    .unwrap()
                     .bind_pipeline_graphics(self.pipelines.basic.clone())
                     .bind_descriptor_sets(
                         PipelineBindPoint::Graphics,
@@ -374,17 +393,6 @@ impl Engine {
                 )
                 .unwrap();
                 builder
-                    .begin_render_pass(
-                        RenderPassBeginInfo {
-                            clear_values: vec![
-                                Some([0.0, 0.0, 0.0, 1.0].into()),
-                                Some(1f32.into()),
-                            ],
-                            ..RenderPassBeginInfo::framebuffer(framebuffer)
-                        },
-                        SubpassContents::Inline,
-                    )
-                    .unwrap()
                     .bind_pipeline_graphics(self.pipelines.textured.clone())
                     .bind_descriptor_sets(
                         PipelineBindPoint::Graphics,
@@ -404,9 +412,6 @@ impl Engine {
                     .unwrap();
             }
         }
-        builder.end_render_pass().unwrap();
-
-        Arc::new(builder.build().unwrap())
     }
 }
 
