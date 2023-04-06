@@ -7,15 +7,34 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug executable 'musogame'",
+            "name": "Debug unit tests in library 'kor_engine'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=kor_engine"
+                ],
+                "filter": {
+                    "name": "kor_engine",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'example'",
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=musogame",
-                    "--package=musogame"
+                    "--bin=example",
+                    "--package=kor_engine"
                 ],
                 "filter": {
-                    "name": "musogame",
+                    "name": "example",
                     "kind": "bin"
                 }
             },
@@ -25,16 +44,16 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in executable 'musogame'",
+            "name": "Debug unit tests in executable 'example'",
             "cargo": {
                 "args": [
                     "test",
                     "--no-run",
-                    "--bin=musogame",
-                    "--package=musogame"
+                    "--bin=example",
+                    "--package=kor_engine"
                 ],
                 "filter": {
-                    "name": "musogame",
+                    "name": "example",
                     "kind": "bin"
                 }
             },
