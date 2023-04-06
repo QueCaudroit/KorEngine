@@ -1,3 +1,4 @@
+use engine::DisplayRequest;
 use logo::get_logo;
 use std::{f32::consts::TAU, time::Instant};
 use winit::{event_loop::EventLoop, window::WindowBuilder};
@@ -43,11 +44,11 @@ impl GameScene for Scene {
         GameSceneState::Continue
     }
 
-    fn display(&self) -> (&Camera, Vec<(&str, [[f32; 4]; 4])>) {
+    fn display(&self) -> (&Camera, Vec<DisplayRequest>) {
         (
             &self.camera,
-            vec![(
-                "TODO",
+            vec![DisplayRequest::InWorldSpace(
+                "TODO".to_owned(),
                 matrix_mult(get_scale_uniform(0.02), get_rotation_y(self.angle)),
             )],
         )

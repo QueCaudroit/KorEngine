@@ -67,6 +67,10 @@ pub struct TextureCoord {
     pub tex_coords_in: [f32; 2],
 }
 
+pub enum DisplayRequest {
+    InWorldSpace(String, [[f32; 4]; 4]),
+}
+
 pub enum GameSceneState {
     Continue,
     Stop,
@@ -75,7 +79,7 @@ pub enum GameSceneState {
 
 pub trait GameScene {
     fn update(&mut self) -> GameSceneState;
-    fn display(&self) -> (&Camera, Vec<(&str, [[f32; 4]; 4])>);
+    fn display(&self) -> (&Camera, Vec<DisplayRequest>);
 }
 
 pub fn run(event_loop: EventLoop<()>, window: Window, gamescene: Box<dyn GameScene>) {
@@ -247,37 +251,44 @@ impl Engine {
             return true;
         }
         let (camera, displayed_items) = self.gamescene.display();
-        let (item_name, item_pos) = &displayed_items[0];
-        let projection = get_perspective(FRAC_PI_2, 16.0 / 9.0, 0.1, 100.0);
-        let camera_view = camera.get_view();
-        let camera_position =
-            extract_translation(get_reverse_transform(matrix_mult(*item_pos, camera_view)));
-        let view_proj = matrix_mult(camera_view, projection);
+        match &displayed_items[0] {
+            DisplayRequest::InWorldSpace(item_name, item_pos) => {
+                let projection = get_perspective(FRAC_PI_2, 16.0 / 9.0, 0.1, 100.0);
+                let camera_view = camera.get_view();
+                let camera_position =
+                    extract_translation(get_reverse_transform(matrix_mult(*item_pos, camera_view)));
+                let view_proj = matrix_mult(camera_view, projection);
 
-        let command_buffer = self.get_command_buffer(
-            image_i,
-            self.assets.get(item_name.to_owned()).unwrap(),
-            view_proj,
-            *item_pos,
-            camera_position,
-        );
-        self.previous_frame_end.cleanup_finished();
-        let mut temp_future = sync::now(self.device.clone()).boxed();
-        mem::swap(&mut temp_future, &mut self.previous_frame_end);
-        let future = temp_future
-            .join(acquire_future)
-            .then_execute(self.queue.clone(), command_buffer)
-            .unwrap()
-            .then_swapchain_present(
-                self.queue.clone(),
-                SwapchainPresentInfo::swapchain_image_index(self.swapchain.clone(), image_i as u32),
-            )
-            .then_signal_fence_and_flush();
+                let command_buffer = self.get_command_buffer(
+                    image_i,
+                    self.assets.get(item_name).unwrap(),
+                    view_proj,
+                    *item_pos,
+                    camera_position,
+                );
+                self.previous_frame_end.cleanup_finished();
+                let mut temp_future = sync::now(self.device.clone()).boxed();
+                mem::swap(&mut temp_future, &mut self.previous_frame_end);
+                let future = temp_future
+                    .join(acquire_future)
+                    .then_execute(self.queue.clone(), command_buffer)
+                    .unwrap()
+                    .then_swapchain_present(
+                        self.queue.clone(),
+                        SwapchainPresentInfo::swapchain_image_index(
+                            self.swapchain.clone(),
+                            image_i as u32,
+                        ),
+                    )
+                    .then_signal_fence_and_flush();
 
-        if matches!(future, Err(FlushError::OutOfDate)) {
-            return true;
+                if matches!(future, Err(FlushError::OutOfDate)) {
+                    return true;
+                }
+                self.previous_frame_end = future.expect("Failed to flush future").boxed();
+            }
         }
-        self.previous_frame_end = future.expect("Failed to flush future").boxed();
+
         false
     }
 
