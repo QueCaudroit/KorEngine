@@ -1,4 +1,3 @@
-// TODO define engine load api
 // TODO add support for multiple assets and primitives
 
 use std::{collections::HashMap, f32::consts::FRAC_PI_2, mem, sync::Arc, time::Instant};
@@ -76,18 +75,24 @@ pub enum GameSceneState {
     Stop,
     ChangeScene(Box<dyn GameScene>),
 }
-
 pub trait GameScene {
+    fn load(&self) -> Vec<LoadRequest>;
     fn update(&mut self) -> GameSceneState;
     fn display(&self) -> (&Camera, Vec<DisplayRequest>);
+}
+
+pub struct LoadRequest {
+    pub loaded_name: String,
+    pub filename: String,
+    pub mesh_name: String,
 }
 
 pub fn run(event_loop: EventLoop<()>, window: Window, gamescene: Box<dyn GameScene>) {
     let window = Arc::new(window);
     let mut engine = Engine::new(window.clone(), gamescene);
-    // TODO stop hardcoding loaded assets
-    engine.load_gltf("monkey", "./monkey.glb", "Suzanne");
-    engine.load_gltf("fox", "./Fox.glb", "fox1");
+    for request in engine.gamescene.load() {
+        engine.load(request);
+    }
     let mut recreate_swapchain = false;
     window.set_visible(true);
     event_loop.run(move |event, _, control_flow| match event {

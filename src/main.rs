@@ -1,4 +1,4 @@
-use engine::DisplayRequest;
+use engine::{DisplayRequest, LoadRequest};
 use geometry::get_translation;
 use logo::get_logo;
 use std::{f32::consts::TAU, time::Instant};
@@ -39,6 +39,21 @@ impl Scene {
 }
 
 impl GameScene for Scene {
+    fn load(&self) -> Vec<LoadRequest> {
+        vec![
+            LoadRequest {
+                loaded_name: "monkey".to_owned(),
+                filename: "./monkey.glb".to_owned(),
+                mesh_name: "Suzanne".to_owned(),
+            },
+            LoadRequest {
+                loaded_name: "fox".to_owned(),
+                filename: "./Fox.glb".to_owned(),
+                mesh_name: "fox1".to_owned(),
+            },
+        ]
+    }
+
     fn update(&mut self) -> GameSceneState {
         let duration = Instant::now().duration_since(self.start_time).as_millis();
         self.angle = TAU * duration as f32 * self.frequency / 1000.0;

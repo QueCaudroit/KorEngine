@@ -12,7 +12,7 @@ use vulkano::{
     sync::{self, GpuFuture},
 };
 
-use crate::engine::Engine;
+use crate::engine::{Engine, LoadRequest};
 use crate::engine::{Normal, Position};
 use crate::format_converter::convert_R8G8B8;
 
@@ -29,13 +29,16 @@ pub enum Asset {
         Arc<ImageView<ImmutableImage>>,
     ),
 }
+
 impl Engine {
-    pub fn load_gltf(&mut self, loaded_name: &str, filename: &str, mesh_name: &str) {
-        self.assets
-            .insert(loaded_name.to_owned(), self.load_asset(filename, mesh_name));
+    pub fn load(&mut self, request: LoadRequest) {
+        self.assets.insert(
+            request.loaded_name,
+            self.load_asset(request.filename, request.mesh_name),
+        );
     }
 
-    pub fn load_asset(&self, filename: &str, mesh_name: &str) -> Asset {
+    pub fn load_asset(&self, filename: String, mesh_name: String) -> Asset {
         let (gltf_document, gltf_buffers, gltf_images) = gltf::import(filename).unwrap();
         let mesh = gltf_document
             .meshes()
