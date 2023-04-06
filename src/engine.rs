@@ -45,6 +45,15 @@ use crate::{
     shaders::{basic_vertex_shader, textured_vertex_shader},
 };
 
+pub mod allocators;
+pub mod camera;
+pub mod format_converter;
+pub mod geometry;
+pub mod load_gltf;
+pub mod logo;
+pub mod pipeline;
+pub mod shaders;
+
 #[derive(BufferContents, Vertex)]
 #[repr(C)]
 pub struct Position {

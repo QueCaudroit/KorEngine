@@ -595,6 +595,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "kor_engine"
+version = "0.1.0"
+dependencies = [
+ "gltf",
+ "image",
+ "vulkano",
+ "vulkano-shaders",
+ "vulkano-win",
+ "winit",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -708,18 +720,6 @@ dependencies = [
  "log",
  "wasi",
  "windows-sys",
-]
-
-[[package]]
-name = "musogame"
-version = "0.1.0"
-dependencies = [
- "gltf",
- "image",
- "vulkano",
- "vulkano-shaders",
- "vulkano-win",
- "winit",
 ]
 
 [[package]]

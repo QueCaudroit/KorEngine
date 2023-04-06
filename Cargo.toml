@@ -1,8 +1,20 @@
 [package]
-name = "musogame"
+name = "kor_engine"
 version = "0.1.0"
 edition = "2021"
+description = "a small game engine prototype based on vulkano"
+repository = "https://github.com/QueCaudroit/KorEngine"
+license-file = "LICENSE.txt"
+keywords = ["gamedev", "graphics"]
+categories = ["game-engines"]
 
+
+[lib]
+path = "src/engine.rs"
+
+[[bin]]
+name = "example"
+path = "src/main.rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]

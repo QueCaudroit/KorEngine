@@ -12,9 +12,8 @@ use vulkano::{
     sync::{self, GpuFuture},
 };
 
-use crate::engine::{Engine, LoadRequest};
-use crate::engine::{Normal, Position};
 use crate::format_converter::convert_R8G8B8;
+use crate::{Engine, LoadRequest, Normal, Position};
 
 pub enum SamplerMode {
     Default,

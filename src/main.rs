@@ -1,24 +1,12 @@
-use engine::{DisplayRequest, LoadRequest};
-use geometry::get_translation;
-use logo::get_logo;
+use image::io::Reader as ImageReader;
 use std::{f32::consts::TAU, time::Instant};
-use winit::{event_loop::EventLoop, window::WindowBuilder};
+use winit::{event_loop::EventLoop, window::Icon, window::WindowBuilder};
 
-use crate::{
+use kor_engine::{
     camera::Camera,
-    engine::{run, GameScene, GameSceneState},
-    geometry::{get_rotation_y, get_scale_uniform, matrix_mult},
+    geometry::{get_rotation_y, get_scale_uniform, get_translation, matrix_mult},
+    run, DisplayRequest, GameScene, GameSceneState, LoadRequest,
 };
-
-pub mod allocators;
-pub mod camera;
-pub mod engine;
-pub mod format_converter;
-pub mod geometry;
-pub mod load_gltf;
-pub mod logo;
-pub mod pipeline;
-pub mod shaders;
 
 struct Scene {
     frequency: f32,
@@ -90,4 +78,17 @@ fn main() {
         .build(&event_loop)
         .unwrap();
     run(event_loop, window, Box::new(Scene::new()));
+}
+
+pub fn get_logo() -> Option<Icon> {
+    if let Ok(image_file) = ImageReader::open("musogame_icon.png") {
+        if let Ok(decoded_image) = image_file.decode() {
+            let formatted_image = decoded_image.into_rgba8();
+            let (width, height) = (formatted_image.width(), formatted_image.height());
+            if let Ok(icon) = Icon::from_rgba(formatted_image.into_vec(), width, height) {
+                return Some(icon);
+            }
+        }
+    }
+    None
 }
