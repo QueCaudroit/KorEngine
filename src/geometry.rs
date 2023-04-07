@@ -1,4 +1,310 @@
-pub fn look_at_from(target: [f32; 3], origin: [f32; 3]) -> (f32, f32) {
+pub struct Transform {
+    pub rotation_scale: [[f32; 3]; 3],
+    pub translation: [f32; 3],
+}
+
+impl Transform {
+    pub fn new() -> Self {
+        Transform {
+            rotation_scale: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            translation: [0.0; 3],
+        }
+    }
+
+    pub fn look_at(from: [f32; 3], to: [f32; 3]) -> Self {
+        let (angle_x, angle_y) = look_at_from(to, from);
+        Transform::new()
+            .translate([-from[0], -from[1], -from[2]])
+            .rotate_y(-angle_y)
+            .rotate_x(-angle_x)
+    }
+
+    pub fn translate(&self, offset: [f32; 3]) -> Self {
+        Transform {
+            translation: [
+                self.translation[0] + offset[0],
+                self.translation[1] + offset[1],
+                self.translation[2] + offset[2],
+            ],
+            rotation_scale: self.rotation_scale,
+        }
+    }
+
+    pub fn scale(&self, coeffs: [f32; 3]) -> Self {
+        Transform {
+            rotation_scale: [
+                [
+                    coeffs[0] * self.rotation_scale[0][0],
+                    coeffs[1] * self.rotation_scale[0][1],
+                    coeffs[2] * self.rotation_scale[0][2],
+                ],
+                [
+                    coeffs[0] * self.rotation_scale[1][0],
+                    coeffs[1] * self.rotation_scale[1][1],
+                    coeffs[2] * self.rotation_scale[1][2],
+                ],
+                [
+                    coeffs[0] * self.rotation_scale[2][0],
+                    coeffs[1] * self.rotation_scale[2][1],
+                    coeffs[2] * self.rotation_scale[2][2],
+                ],
+            ],
+            translation: self.translation,
+        }
+    }
+
+    pub fn rotate_x(&self, angle: f32) -> Self {
+        Transform {
+            rotation_scale: [
+                [
+                    self.rotation_scale[0][0],
+                    self.rotation_scale[0][1] * angle.cos()
+                        - self.rotation_scale[0][2] * angle.sin(),
+                    self.rotation_scale[0][1] * angle.sin()
+                        + self.rotation_scale[0][2] * angle.cos(),
+                ],
+                [
+                    self.rotation_scale[1][0],
+                    self.rotation_scale[1][1] * angle.cos()
+                        - self.rotation_scale[1][2] * angle.sin(),
+                    self.rotation_scale[1][1] * angle.sin()
+                        + self.rotation_scale[1][2] * angle.cos(),
+                ],
+                [
+                    self.rotation_scale[2][0],
+                    self.rotation_scale[2][1] * angle.cos()
+                        - self.rotation_scale[2][2] * angle.sin(),
+                    self.rotation_scale[2][1] * angle.sin()
+                        + self.rotation_scale[2][2] * angle.cos(),
+                ],
+            ],
+            translation: [
+                self.translation[0],
+                self.translation[1] * angle.cos() - self.translation[2] * angle.sin(),
+                self.translation[1] * angle.sin() + self.translation[2] * angle.cos(),
+            ],
+        }
+    }
+
+    pub fn rotate_y(&self, angle: f32) -> Self {
+        Transform {
+            rotation_scale: [
+                [
+                    self.rotation_scale[0][0] * angle.cos()
+                        + self.rotation_scale[0][2] * angle.sin(),
+                    self.rotation_scale[0][1],
+                    self.rotation_scale[0][2] * angle.cos()
+                        - self.rotation_scale[0][0] * angle.sin(),
+                ],
+                [
+                    self.rotation_scale[1][0] * angle.cos()
+                        + self.rotation_scale[1][2] * angle.sin(),
+                    self.rotation_scale[1][1],
+                    self.rotation_scale[1][2] * angle.cos()
+                        - self.rotation_scale[1][0] * angle.sin(),
+                ],
+                [
+                    self.rotation_scale[2][0] * angle.cos()
+                        + self.rotation_scale[2][2] * angle.sin(),
+                    self.rotation_scale[2][1],
+                    self.rotation_scale[2][2] * angle.cos()
+                        - self.rotation_scale[2][0] * angle.sin(),
+                ],
+            ],
+            translation: [
+                self.translation[0] * angle.cos() + self.translation[2] * angle.sin(),
+                self.translation[1],
+                self.translation[2] * angle.cos() - self.translation[0] * angle.sin(),
+            ],
+        }
+    }
+    pub fn rotate_z(&self, angle: f32) -> Self {
+        Transform {
+            rotation_scale: [
+                [
+                    self.rotation_scale[0][0] * angle.cos()
+                        - self.rotation_scale[0][1] * angle.sin(),
+                    self.rotation_scale[0][1] * angle.cos()
+                        + self.rotation_scale[0][0] * angle.sin(),
+                    self.rotation_scale[0][2],
+                ],
+                [
+                    self.rotation_scale[1][0] * angle.cos()
+                        - self.rotation_scale[1][1] * angle.sin(),
+                    self.rotation_scale[1][1] * angle.cos()
+                        + self.rotation_scale[1][0] * angle.sin(),
+                    self.rotation_scale[1][2],
+                ],
+                [
+                    self.rotation_scale[2][0] * angle.cos()
+                        - self.rotation_scale[2][1] * angle.sin(),
+                    self.rotation_scale[2][1] * angle.cos()
+                        + self.rotation_scale[2][0] * angle.sin(),
+                    self.rotation_scale[2][2],
+                ],
+            ],
+            translation: [
+                self.translation[0] * angle.cos() - self.translation[1] * angle.sin(),
+                self.translation[1] * angle.cos() + self.translation[0] * angle.sin(),
+                self.translation[2],
+            ],
+        }
+    }
+    pub fn reverse(&self) -> Self {
+        Transform {
+            rotation_scale: [
+                [
+                    self.rotation_scale[0][0],
+                    self.rotation_scale[1][0],
+                    self.rotation_scale[2][0],
+                ],
+                [
+                    self.rotation_scale[0][1],
+                    self.rotation_scale[1][1],
+                    self.rotation_scale[2][1],
+                ],
+                [
+                    self.rotation_scale[0][2],
+                    self.rotation_scale[1][2],
+                    self.rotation_scale[2][2],
+                ],
+            ],
+            translation: [
+                -self.translation[0] * self.rotation_scale[0][0]
+                    - self.translation[1] * self.rotation_scale[0][1]
+                    - self.translation[2] * self.rotation_scale[0][2],
+                -self.translation[0] * self.rotation_scale[1][0]
+                    - self.translation[1] * self.rotation_scale[1][1]
+                    - self.translation[2] * self.rotation_scale[1][2],
+                -self.translation[0] * self.rotation_scale[2][0]
+                    - self.translation[1] * self.rotation_scale[2][1]
+                    - self.translation[2] * self.rotation_scale[2][2],
+            ],
+        }
+    }
+
+    pub fn project_perspective(&self, fov: f32, aspect: f32, near: f32, far: f32) -> [[f32; 4]; 4] {
+        let fov_coeff = -(fov / 2.0).tan();
+        let perspective_coeff = far / (far - near);
+        [
+            [
+                self.rotation_scale[0][0] * fov_coeff / aspect,
+                self.rotation_scale[0][1] * fov_coeff,
+                self.rotation_scale[0][2] * perspective_coeff,
+                self.rotation_scale[0][2],
+            ],
+            [
+                self.rotation_scale[1][0] * fov_coeff / aspect,
+                self.rotation_scale[1][1] * fov_coeff,
+                self.rotation_scale[1][2] * perspective_coeff,
+                self.rotation_scale[1][2],
+            ],
+            [
+                self.rotation_scale[2][0] * fov_coeff / aspect,
+                self.rotation_scale[2][1] * fov_coeff,
+                self.rotation_scale[2][2] * perspective_coeff,
+                self.rotation_scale[2][2],
+            ],
+            [
+                self.translation[0] * fov_coeff / aspect,
+                self.translation[1] * fov_coeff,
+                (self.translation[2] - near) * perspective_coeff,
+                self.translation[2],
+            ],
+        ]
+    }
+
+    pub fn to_homogeneous(&self) -> [[f32; 4]; 4] {
+        [
+            [
+                self.rotation_scale[0][0],
+                self.rotation_scale[0][1],
+                self.rotation_scale[0][2],
+                0.0,
+            ],
+            [
+                self.rotation_scale[1][0],
+                self.rotation_scale[1][1],
+                self.rotation_scale[1][2],
+                0.0,
+            ],
+            [
+                self.rotation_scale[2][0],
+                self.rotation_scale[2][1],
+                self.rotation_scale[2][2],
+                0.0,
+            ],
+            [
+                self.translation[0],
+                self.translation[1],
+                self.translation[2],
+                1.0,
+            ],
+        ]
+    }
+
+    pub fn compose(&self, other: &Self) -> Self {
+        Transform {
+            rotation_scale: [
+                [
+                    self.rotation_scale[0][0] * other.rotation_scale[0][0]
+                        + self.rotation_scale[0][1] * other.rotation_scale[1][0]
+                        + self.rotation_scale[0][2] * other.rotation_scale[2][0],
+                    self.rotation_scale[0][0] * other.rotation_scale[0][1]
+                        + self.rotation_scale[0][1] * other.rotation_scale[1][1]
+                        + self.rotation_scale[0][2] * other.rotation_scale[2][1],
+                    self.rotation_scale[0][0] * other.rotation_scale[0][2]
+                        + self.rotation_scale[0][1] * other.rotation_scale[1][2]
+                        + self.rotation_scale[0][2] * other.rotation_scale[2][2],
+                ],
+                [
+                    self.rotation_scale[1][0] * other.rotation_scale[0][0]
+                        + self.rotation_scale[1][1] * other.rotation_scale[1][0]
+                        + self.rotation_scale[1][2] * other.rotation_scale[2][0],
+                    self.rotation_scale[1][0] * other.rotation_scale[0][1]
+                        + self.rotation_scale[1][1] * other.rotation_scale[1][1]
+                        + self.rotation_scale[1][2] * other.rotation_scale[2][1],
+                    self.rotation_scale[1][0] * other.rotation_scale[0][2]
+                        + self.rotation_scale[1][1] * other.rotation_scale[1][2]
+                        + self.rotation_scale[1][2] * other.rotation_scale[2][2],
+                ],
+                [
+                    self.rotation_scale[2][0] * other.rotation_scale[0][0]
+                        + self.rotation_scale[2][1] * other.rotation_scale[1][0]
+                        + self.rotation_scale[2][2] * other.rotation_scale[2][0],
+                    self.rotation_scale[2][0] * other.rotation_scale[0][1]
+                        + self.rotation_scale[2][1] * other.rotation_scale[1][1]
+                        + self.rotation_scale[2][2] * other.rotation_scale[2][1],
+                    self.rotation_scale[2][0] * other.rotation_scale[0][2]
+                        + self.rotation_scale[2][1] * other.rotation_scale[1][2]
+                        + self.rotation_scale[2][2] * other.rotation_scale[2][2],
+                ],
+            ],
+            translation: [
+                self.translation[0] * other.rotation_scale[0][0]
+                    + self.translation[1] * other.rotation_scale[1][0]
+                    + self.translation[2] * other.rotation_scale[2][0]
+                    + other.translation[0],
+                self.translation[0] * other.rotation_scale[0][1]
+                    + self.translation[1] * other.rotation_scale[1][1]
+                    + self.translation[2] * other.rotation_scale[2][1]
+                    + other.translation[1],
+                self.translation[0] * other.rotation_scale[0][2]
+                    + self.translation[1] * other.rotation_scale[1][2]
+                    + self.translation[2] * other.rotation_scale[2][2]
+                    + other.translation[2],
+            ],
+        }
+    }
+}
+
+impl Default for Transform {
+    fn default() -> Self {
+        Transform::new()
+    }
+}
+
+fn look_at_from(target: [f32; 3], origin: [f32; 3]) -> (f32, f32) {
     look_at([
         target[0] - origin[0],
         target[1] - origin[1],
@@ -6,100 +312,8 @@ pub fn look_at_from(target: [f32; 3], origin: [f32; 3]) -> (f32, f32) {
     ])
 }
 
-pub fn look_at(target: [f32; 3]) -> (f32, f32) {
+fn look_at(target: [f32; 3]) -> (f32, f32) {
     let angle_y = target[0].atan2(target[2]);
     let angle_x = -target[1].atan2(target[0].hypot(target[2]));
     (angle_x, angle_y)
-}
-
-pub fn matrix_mult(a: [[f32; 4]; 4], b: [[f32; 4]; 4]) -> [[f32; 4]; 4] {
-    let mut result = [[0.0; 4]; 4];
-    for i in 0..4 {
-        for j in 0..4 {
-            result[i][j] =
-                a[i][0] * b[0][j] + a[i][1] * b[1][j] + a[i][2] * b[2][j] + a[i][3] * b[3][j];
-        }
-    }
-    result
-}
-
-pub fn get_translation(direction: [f32; 3]) -> [[f32; 4]; 4] {
-    [
-        [1.0, 0.0, 0.0, 0.0],
-        [0.0, 1.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0, 0.0],
-        [direction[0], direction[1], direction[2], 1.0],
-    ]
-}
-
-pub fn get_rotation_x(angle: f32) -> [[f32; 4]; 4] {
-    [
-        [1.0, 0.0, 0.0, 0.0],
-        [0.0, angle.cos(), angle.sin(), 0.0],
-        [0.0, -angle.sin(), angle.cos(), 0.0],
-        [0.0, 0.0, 0.0, 1.0],
-    ]
-}
-
-pub fn get_rotation_y(angle: f32) -> [[f32; 4]; 4] {
-    [
-        [angle.cos(), 0.0, -angle.sin(), 0.0],
-        [0.0, 1.0, 0.0, 0.0],
-        [angle.sin(), 0.0, angle.cos(), 0.0],
-        [0.0, 0.0, 0.0, 1.0],
-    ]
-}
-
-pub fn get_rotation_z(angle: f32) -> [[f32; 4]; 4] {
-    [
-        [angle.cos(), angle.sin(), 0.0, 0.0],
-        [-angle.sin(), angle.cos(), 0.0, 0.0],
-        [0.0, 0.0, 1.0, 0.0],
-        [0.0, 0.0, 0.0, 1.0],
-    ]
-}
-
-pub fn get_scale_uniform(s: f32) -> [[f32; 4]; 4] {
-    [
-        [s, 0.0, 0.0, 0.0],
-        [0.0, s, 0.0, 0.0],
-        [0.0, 0.0, s, 0.0],
-        [0.0, 0.0, 0.0, 1.0],
-    ]
-}
-
-pub fn matrix_transpose(a: [[f32; 4]; 4]) -> [[f32; 4]; 4] {
-    [
-        [a[0][0], a[1][0], a[2][0], a[3][0]],
-        [a[0][1], a[1][1], a[2][1], a[3][1]],
-        [a[0][2], a[1][2], a[2][2], a[3][2]],
-        [a[0][3], a[1][3], a[2][3], a[3][3]],
-    ]
-}
-
-pub fn get_reverse_transform(a: [[f32; 4]; 4]) -> [[f32; 4]; 4] {
-    let tx = -a[3][0] * a[0][0] - a[3][1] * a[0][1] - a[3][2] * a[0][2];
-    let ty = -a[3][0] * a[1][0] - a[3][1] * a[1][1] - a[3][2] * a[1][2];
-    let tz = -a[3][0] * a[2][0] - a[3][1] * a[2][1] - a[3][2] * a[2][2];
-    [
-        [a[0][0], a[1][0], a[2][0], 0.0],
-        [a[0][1], a[1][1], a[2][1], 0.0],
-        [a[0][2], a[1][2], a[2][2], 0.0],
-        [tx, ty, tz, 1.0],
-    ]
-}
-
-pub fn get_perspective(fov: f32, aspect: f32, near: f32, far: f32) -> [[f32; 4]; 4] {
-    let fov_coeff = -(fov / 2.0).tan();
-    let perspective_coeff = far / (far - near);
-    [
-        [fov_coeff / aspect, 0.0, 0.0, 0.0],
-        [0.0, fov_coeff, 0.0, 0.0],
-        [0.0, 0.0, perspective_coeff, 1.0],
-        [0.0, 0.0, -near * perspective_coeff, 0.0],
-    ]
-}
-
-pub fn extract_translation(a: [[f32; 4]; 4]) -> [f32; 3] {
-    [a[3][0], a[3][1], a[3][2]]
 }

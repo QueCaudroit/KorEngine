@@ -3,16 +3,14 @@ use std::{f32::consts::TAU, time::Instant};
 use winit::{event_loop::EventLoop, window::Icon, window::WindowBuilder};
 
 use kor_engine::{
-    camera::Camera,
-    geometry::{get_rotation_y, get_scale_uniform, get_translation, matrix_mult},
-    run, DisplayRequest, GameScene, GameSceneState, LoadRequest,
+    geometry::Transform, run, DisplayRequest, GameScene, GameSceneState, LoadRequest,
 };
 
 struct Scene {
     frequency: f32,
     start_time: Instant,
     angle: f32,
-    camera: Camera,
+    camera: Transform,
 }
 
 impl Scene {
@@ -21,7 +19,7 @@ impl Scene {
             frequency: 0.1,
             start_time: Instant::now(),
             angle: 0.0,
-            camera: Camera::LookAt([1.0, 2.0, -5.0], [0.0, 0.0, 0.0]),
+            camera: Transform::look_at([1.0, 2.0, -5.0], [0.0, 0.0, 0.0]),
         }
     }
 }
@@ -48,20 +46,19 @@ impl GameScene for Scene {
         GameSceneState::Continue
     }
 
-    fn display(&self) -> (&Camera, Vec<DisplayRequest>) {
+    fn display(&self) -> (&Transform, Vec<DisplayRequest>) {
         (
             &self.camera,
             vec![
                 DisplayRequest::InWorldSpace(
                     "fox".to_owned(),
-                    matrix_mult(get_scale_uniform(0.02), get_rotation_y(self.angle)),
+                    Transform::new().scale([0.02; 3]).rotate_y(self.angle),
                 ),
                 DisplayRequest::InWorldSpace(
                     "monkey".to_owned(),
-                    matrix_mult(
-                        get_rotation_y(self.angle),
-                        get_translation([-3.5, 0.0, 0.0]),
-                    ),
+                    Transform::new()
+                        .rotate_y(self.angle)
+                        .translate([-3.5, 0.0, 0.0]),
                 ),
             ],
         )

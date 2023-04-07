@@ -38,15 +38,13 @@ use winit::{
 
 use crate::{
     allocators::AllocatorCollection,
-    camera::Camera,
-    geometry::{extract_translation, get_perspective, get_reverse_transform, matrix_mult},
+    geometry::Transform,
     load_gltf::Asset,
     pipeline::PipelineCollection,
     shaders::{basic_vertex_shader, textured_vertex_shader},
 };
 
 pub mod allocators;
-pub mod camera;
 pub mod format_converter;
 pub mod geometry;
 pub mod load_gltf;
@@ -76,7 +74,7 @@ pub struct TextureCoord {
 }
 
 pub enum DisplayRequest {
-    InWorldSpace(String, [[f32; 4]; 4]),
+    InWorldSpace(String, Transform),
 }
 
 pub enum GameSceneState {
@@ -87,7 +85,7 @@ pub enum GameSceneState {
 pub trait GameScene {
     fn load(&self) -> Vec<LoadRequest>;
     fn update(&mut self) -> GameSceneState;
-    fn display(&self) -> (&Camera, Vec<DisplayRequest>);
+    fn display(&self) -> (&Transform, Vec<DisplayRequest>);
 }
 
 pub struct LoadRequest {
@@ -266,24 +264,19 @@ impl Engine {
         if suboptimal {
             return true;
         }
-        let (camera, displayed_items) = self.gamescene.display();
+        let (camera_transform, displayed_items) = self.gamescene.display();
 
-        let projection = get_perspective(FRAC_PI_2, 16.0 / 9.0, 0.1, 100.0);
-        let camera_view = camera.get_view();
-        let view_proj = matrix_mult(camera_view, projection);
+        let view_proj = camera_transform.project_perspective(FRAC_PI_2, 16.0 / 9.0, 0.1, 100.0);
 
         let mut builder = self.init_command_buffer(image_i);
         for displayed_item in displayed_items {
             match &displayed_item {
                 DisplayRequest::InWorldSpace(item_name, item_pos) => {
-                    let camera_position = extract_translation(get_reverse_transform(matrix_mult(
-                        *item_pos,
-                        camera_view,
-                    )));
+                    let camera_position = item_pos.compose(camera_transform).reverse().translation;
                     self.add_asset_to_command_buffer(
                         self.assets.get(item_name).unwrap(),
                         view_proj,
-                        *item_pos,
+                        item_pos.to_homogeneous(),
                         camera_position,
                         &mut builder,
                     );
