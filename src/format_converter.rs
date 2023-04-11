@@ -6,7 +6,7 @@ pub fn convert_R8G8B8(data: &Vec<u8>) -> Vec<u8> {
         result.push(data[3 * i + 2]);
         result.push(data[3 * i + 1]);
         result.push(data[3 * i]);
-        result.push(255);
+        result.push(u8::MAX);
     }
     result
 }

@@ -4,7 +4,7 @@ use std::{collections::HashMap, f32::consts::FRAC_PI_2, mem, sync::Arc, time::In
 use vulkano::{
     buffer::{
         allocator::{SubbufferAllocator, SubbufferAllocatorCreateInfo},
-        BufferContents, BufferUsage,
+        Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer,
     },
     command_buffer::{
         AutoCommandBufferBuilder, CommandBufferUsage, PrimaryAutoCommandBuffer,
@@ -18,7 +18,7 @@ use vulkano::{
     format::Format,
     image::{view::ImageView, AttachmentImage, ImageAccess, ImageUsage, SwapchainImage},
     instance::{Instance, InstanceCreateInfo},
-    memory::allocator::MemoryAllocator,
+    memory::allocator::{AllocationCreateInfo, MemoryAllocator, MemoryUsage},
     pipeline::{graphics::vertex_input::Vertex, Pipeline, PipelineBindPoint},
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass},
     sampler::{Sampler, SamplerCreateInfo},
@@ -73,8 +73,22 @@ pub struct TextureCoord {
     pub tex_coords_in: [f32; 2],
 }
 
+#[derive(BufferContents, Vertex)]
+#[repr(C)]
+pub struct CameraPosition {
+    #[format(R32G32B32_SFLOAT)]
+    pub camera_position: [f32; 3],
+}
+
+#[derive(BufferContents, Vertex)]
+#[repr(C)]
+pub struct Model {
+    #[format(R32G32B32A32_SFLOAT)]
+    pub model: [[f32; 4]; 4],
+}
+
 pub enum DisplayRequest {
-    InWorldSpace(String, Transform),
+    InWorldSpace(String, Vec<Transform>),
 }
 
 pub enum GameSceneState {
@@ -272,12 +286,39 @@ impl Engine {
         for displayed_item in displayed_items {
             match &displayed_item {
                 DisplayRequest::InWorldSpace(item_name, item_pos) => {
-                    let camera_position = item_pos.compose(camera_transform).reverse().translation;
+                    let camera_positions = Buffer::from_iter(
+                        &self.allocators.memory,
+                        BufferCreateInfo {
+                            usage: BufferUsage::VERTEX_BUFFER,
+                            ..Default::default()
+                        },
+                        AllocationCreateInfo {
+                            usage: MemoryUsage::Upload,
+                            ..Default::default()
+                        },
+                        item_pos
+                            .iter()
+                            .map(|pos| pos.compose(camera_transform).reverse().translation),
+                    )
+                    .unwrap();
+                    let item_pos = Buffer::from_iter(
+                        &self.allocators.memory,
+                        BufferCreateInfo {
+                            usage: BufferUsage::VERTEX_BUFFER,
+                            ..Default::default()
+                        },
+                        AllocationCreateInfo {
+                            usage: MemoryUsage::Upload,
+                            ..Default::default()
+                        },
+                        item_pos.iter().map(|pos| pos.to_homogeneous()),
+                    )
+                    .unwrap();
                     self.add_asset_to_command_buffer(
                         self.assets.get(item_name).unwrap(),
                         view_proj,
-                        item_pos.to_homogeneous(),
-                        camera_position,
+                        item_pos,
+                        camera_positions,
                         &mut builder,
                     );
                 }
@@ -340,18 +381,17 @@ impl Engine {
         &self,
         asset: &Asset,
         view_proj: [[f32; 4]; 4],
-        item_pos: [[f32; 4]; 4],
-        camera_position: [f32; 3],
+        item_pos: Subbuffer<[[[f32; 4]; 4]]>,
+        camera_position: Subbuffer<[[f32; 3]]>,
         builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
     ) {
+        let instance_count = camera_position.len();
         match asset {
             Asset::Basic(position_buffer, normal_buffer, color) => {
                 let uniform_subbuffer = self.uniform_buffer.allocate_sized().unwrap();
                 *uniform_subbuffer.write().unwrap() = basic_vertex_shader::UniformBufferObject {
-                    model: item_pos,
-                    view_proj,
                     color: *color,
-                    camera_position,
+                    view_proj,
                 };
                 let layout = self.pipelines.basic.layout().set_layouts().get(0).unwrap();
                 let descriptor_set = PersistentDescriptorSet::new(
@@ -368,17 +408,22 @@ impl Engine {
                         0,
                         descriptor_set,
                     )
-                    .bind_vertex_buffers(0, (position_buffer.clone(), normal_buffer.clone()))
-                    .draw(position_buffer.len() as u32, 1, 0, 0)
+                    .bind_vertex_buffers(
+                        0,
+                        (
+                            position_buffer.clone(),
+                            normal_buffer.clone(),
+                            camera_position,
+                            item_pos,
+                        ),
+                    )
+                    .draw(position_buffer.len() as u32, instance_count as u32, 0, 0)
                     .unwrap();
             }
             Asset::Textured(position_buffer, normal_buffer, texture_coord, texture) => {
                 let uniform_subbuffer = self.uniform_buffer.allocate_sized().unwrap();
-                *uniform_subbuffer.write().unwrap() = textured_vertex_shader::UniformBufferObject {
-                    model: item_pos,
-                    view_proj,
-                    camera_position,
-                };
+                *uniform_subbuffer.write().unwrap() =
+                    textured_vertex_shader::UniformBufferObject { view_proj };
                 let layout = self
                     .pipelines
                     .textured
@@ -413,9 +458,11 @@ impl Engine {
                             position_buffer.clone(),
                             normal_buffer.clone(),
                             texture_coord.clone(),
+                            camera_position,
+                            item_pos,
                         ),
                     )
-                    .draw(position_buffer.len() as u32, 1, 0, 0)
+                    .draw(position_buffer.len() as u32, instance_count as u32, 0, 0)
                     .unwrap();
             }
         }

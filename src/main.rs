@@ -47,18 +47,28 @@ impl GameScene for Scene {
     }
 
     fn display(&self) -> (&Transform, Vec<DisplayRequest>) {
+        let mut foxes = Vec::with_capacity(1001);
+        for x in 0..10 {
+            for y in 0..10 {
+                for z in 0..10 {
+                    foxes.push(
+                        Transform::new()
+                            .scale([0.02; 3])
+                            .rotate_y(self.angle)
+                            .translate([3.5 * x as f32, 3.5 * y as f32, 3.5 * z as f32]),
+                    )
+                }
+            }
+        }
         (
             &self.camera,
             vec![
-                DisplayRequest::InWorldSpace(
-                    "fox".to_owned(),
-                    Transform::new().scale([0.02; 3]).rotate_y(self.angle),
-                ),
+                DisplayRequest::InWorldSpace("fox".to_owned(), foxes),
                 DisplayRequest::InWorldSpace(
                     "monkey".to_owned(),
-                    Transform::new()
+                    vec![Transform::new()
                         .rotate_y(self.angle)
-                        .translate([-3.5, 0.0, 0.0]),
+                        .translate([-3.5, 0.0, 0.0])],
                 ),
             ],
         )
