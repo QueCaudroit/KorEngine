@@ -6,6 +6,8 @@ use kor_engine::{
     geometry::Transform, run, DisplayRequest, GameScene, GameSceneState, LoadRequest,
 };
 
+const SIZE: usize = 10;
+
 struct Scene {
     frequency: f32,
     start_time: Instant,
@@ -19,7 +21,7 @@ impl Scene {
             frequency: 0.1,
             start_time: Instant::now(),
             angle: 0.0,
-            camera: Transform::look_at([1.0, 2.0, -5.0], [0.0, 0.0, 0.0]),
+            camera: Transform::look_at([1.0, 2.0, -5.0], [SIZE as f32 * 1.7; 3]),
         }
     }
 }
@@ -47,10 +49,10 @@ impl GameScene for Scene {
     }
 
     fn display(&self) -> (&Transform, Vec<DisplayRequest>) {
-        let mut foxes = Vec::with_capacity(1001);
-        for x in 0..10 {
-            for y in 0..10 {
-                for z in 0..10 {
+        let mut foxes = Vec::with_capacity(SIZE * SIZE * SIZE);
+        for x in 0..SIZE {
+            for y in 0..SIZE {
+                for z in 0..SIZE {
                     foxes.push(
                         Transform::new()
                             .scale([0.02; 3])
