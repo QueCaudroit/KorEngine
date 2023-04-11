@@ -23,7 +23,7 @@ use vulkano::{
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass},
     sampler::{Sampler, SamplerCreateInfo},
     swapchain::{
-        acquire_next_image, AcquireError, Surface, SurfaceCapabilities, Swapchain,
+        acquire_next_image, AcquireError, PresentMode, Surface, SurfaceCapabilities, Swapchain,
         SwapchainCreateInfo, SwapchainCreationError, SwapchainPresentInfo,
     },
     sync::{self, FlushError, GpuFuture},
@@ -116,6 +116,8 @@ pub fn run(event_loop: EventLoop<()>, window: Window, gamescene: Box<dyn GameSce
     }
     let mut recreate_swapchain = false;
     window.set_visible(true);
+    let mut start = Instant::now();
+    let mut frames = 0;
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent {
             event: WindowEvent::CloseRequested,
@@ -130,6 +132,15 @@ pub fn run(event_loop: EventLoop<()>, window: Window, gamescene: Box<dyn GameSce
             recreate_swapchain = true;
         }
         Event::MainEventsCleared => {
+            frames += 1;
+            if frames >= 60 {
+                let now = Instant::now();
+                let duration = now.duration_since(start).as_secs_f32();
+                let fps = frames as f32 / duration;
+                println!("{fps} fps");
+                frames = 0;
+                start = now;
+            }
             if !engine.update() {
                 *control_flow = ControlFlow::Exit
             }
@@ -180,6 +191,7 @@ impl Engine {
                 image_extent: window.inner_size().into(),
                 image_usage: ImageUsage::COLOR_ATTACHMENT,
                 composite_alpha,
+                present_mode: PresentMode::Immediate,
                 ..Default::default()
             },
         )
