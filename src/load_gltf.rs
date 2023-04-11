@@ -12,7 +12,10 @@ use vulkano::{
     sync::{self, GpuFuture},
 };
 
-use crate::format_converter::convert_R8G8B8;
+use crate::format_converter::{
+    convert_R16, convert_R16G16, convert_R16G16B16, convert_R16G16B16A16, convert_R32G32B32,
+    convert_R32G32B32A32, convert_R8, convert_R8G8, convert_R8G8B8, convert_R8G8B8A8,
+};
 use crate::{Engine, LoadRequest, Normal, Position};
 
 pub enum SamplerMode {
@@ -388,9 +391,15 @@ impl Engine {
         future.wait(None).unwrap();
         let data = match image_data.format {
             GltfFormat::R8G8B8 => convert_R8G8B8(&image_data.pixels),
-            _ => {
-                panic!("texture format not implemented")
-            }
+            GltfFormat::R16G16B16 => convert_R16G16B16(&image_data.pixels),
+            GltfFormat::R8G8 => convert_R8G8(&image_data.pixels),
+            GltfFormat::R16G16 => convert_R16G16(&image_data.pixels),
+            GltfFormat::R8G8B8A8 => convert_R8G8B8A8(&image_data.pixels),
+            GltfFormat::R16G16B16A16 => convert_R16G16B16A16(&image_data.pixels),
+            GltfFormat::R8 => convert_R8(&image_data.pixels),
+            GltfFormat::R16 => convert_R16(&image_data.pixels),
+            GltfFormat::R32G32B32FLOAT => convert_R32G32B32(&image_data.pixels),
+            GltfFormat::R32G32B32A32FLOAT => convert_R32G32B32A32(&image_data.pixels),
         };
         let dimensions = ImageDimensions::Dim2d {
             width: image_data.width,
