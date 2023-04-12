@@ -1,12 +1,15 @@
 use image::io::Reader as ImageReader;
 use std::{f32::consts::TAU, time::Instant};
-use winit::{event_loop::EventLoop, window::Icon, window::WindowBuilder};
+use winit::{event::VirtualKeyCode, event_loop::EventLoop, window::Icon, window::WindowBuilder};
 
 use kor_engine::{
-    geometry::Transform, run, DisplayRequest, GameScene, GameSceneState, LoadRequest,
+    geometry::Transform, input::Input, run, DisplayRequest, GameScene, GameSceneState, LoadRequest,
 };
 
 const SIZE: usize = 10;
+const ROTATION_SPEED: f32 = 0.5;
+const TRANSLATION_SPEED: f32 = 2.0;
+const FRAME_TIME: f32 = 1.0 / 60.0;
 
 struct Scene {
     frequency: f32,
@@ -21,7 +24,10 @@ impl Scene {
             frequency: 0.1,
             start_time: Instant::now(),
             angle: 0.0,
-            camera: Transform::look_at([1.0, 2.0, -5.0], [SIZE as f32 * 1.7; 3]),
+            camera: Transform::look_at(
+                [1.0, 2.0, -20.0],
+                [SIZE as f32 * 1.7, 2.0, SIZE as f32 * 1.7],
+            ),
         }
     }
 }
@@ -42,9 +48,29 @@ impl GameScene for Scene {
         ]
     }
 
-    fn update(&mut self) -> GameSceneState {
+    fn update(&mut self, input: &Input) -> GameSceneState {
         let duration = Instant::now().duration_since(self.start_time).as_millis();
         self.angle = TAU * duration as f32 * self.frequency / 1000.0;
+        self.camera = self
+            .camera
+            .rotate_y(-input.mouse.raw_x as f32 * ROTATION_SPEED * FRAME_TIME);
+        if input.keyboard.keys[VirtualKeyCode::D as usize].state {
+            self.camera = self
+                .camera
+                .translate([-TRANSLATION_SPEED * FRAME_TIME, 0.0, 0.0])
+        } else if input.keyboard.keys[VirtualKeyCode::A as usize].state {
+            self.camera = self
+                .camera
+                .translate([TRANSLATION_SPEED * FRAME_TIME, 0.0, 0.0])
+        } else if input.keyboard.keys[VirtualKeyCode::W as usize].state {
+            self.camera = self
+                .camera
+                .translate([0.0, 0.0, TRANSLATION_SPEED * FRAME_TIME])
+        } else if input.keyboard.keys[VirtualKeyCode::S as usize].state {
+            self.camera = self
+                .camera
+                .translate([0.0, 0.0, -TRANSLATION_SPEED * FRAME_TIME])
+        }
         GameSceneState::Continue
     }
 
@@ -56,8 +82,8 @@ impl GameScene for Scene {
                     foxes.push(
                         Transform::new()
                             .scale([0.02; 3])
-                            .rotate_y(self.angle)
-                            .translate([3.5 * x as f32, 3.5 * y as f32, 3.5 * z as f32]),
+                            .rotate_y_world(self.angle)
+                            .translate_world([3.5 * x as f32, 3.5 * y as f32, 3.5 * z as f32]),
                     )
                 }
             }
@@ -69,8 +95,8 @@ impl GameScene for Scene {
                 DisplayRequest::InWorldSpace(
                     "monkey".to_owned(),
                     vec![Transform::new()
-                        .rotate_y(self.angle)
-                        .translate([-3.5, 0.0, 0.0])],
+                        .rotate_y_world(self.angle)
+                        .translate_world([-3.5, 0.0, 0.0])],
                 ),
             ],
         )

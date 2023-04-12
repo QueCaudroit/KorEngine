@@ -11,15 +11,47 @@ impl Transform {
         }
     }
 
+    pub fn left(&self) -> [f32; 3] {
+        self.rotation_scale[0]
+    }
+
+    pub fn up(&self) -> [f32; 3] {
+        self.rotation_scale[1]
+    }
+
+    pub fn forward(&self) -> [f32; 3] {
+        self.rotation_scale[2]
+    }
+
     pub fn look_at(from: [f32; 3], to: [f32; 3]) -> Self {
         let (angle_x, angle_y) = look_at_from(to, from);
         Transform::new()
-            .translate([-from[0], -from[1], -from[2]])
-            .rotate_y(-angle_y)
-            .rotate_x(-angle_x)
+            .rotate_x_world(angle_x)
+            .rotate_y_world(angle_y)
+            .translate_world([from[0], from[1], from[2]])
     }
 
     pub fn translate(&self, offset: [f32; 3]) -> Self {
+        Transform {
+            translation: [
+                self.translation[0]
+                    + offset[0] * self.rotation_scale[0][0]
+                    + offset[1] * self.rotation_scale[1][0]
+                    + offset[2] * self.rotation_scale[2][0],
+                self.translation[1]
+                    + offset[0] * self.rotation_scale[0][1]
+                    + offset[1] * self.rotation_scale[1][1]
+                    + offset[2] * self.rotation_scale[2][1],
+                self.translation[2]
+                    + offset[0] * self.rotation_scale[0][2]
+                    + offset[1] * self.rotation_scale[1][2]
+                    + offset[2] * self.rotation_scale[2][2],
+            ],
+            rotation_scale: self.rotation_scale,
+        }
+    }
+
+    pub fn translate_world(&self, offset: [f32; 3]) -> Self {
         Transform {
             translation: [
                 self.translation[0] + offset[0],
@@ -53,103 +85,156 @@ impl Transform {
         }
     }
 
-    pub fn rotate_x(&self, angle: f32) -> Self {
+    pub fn rotate_x_world(&self, angle: f32) -> Self {
+        let s = angle.sin();
+        let c = angle.cos();
         Transform {
             rotation_scale: [
                 [
                     self.rotation_scale[0][0],
-                    self.rotation_scale[0][1] * angle.cos()
-                        - self.rotation_scale[0][2] * angle.sin(),
-                    self.rotation_scale[0][1] * angle.sin()
-                        + self.rotation_scale[0][2] * angle.cos(),
+                    self.rotation_scale[0][1] * c - self.rotation_scale[0][2] * s,
+                    self.rotation_scale[0][1] * s + self.rotation_scale[0][2] * c,
                 ],
                 [
                     self.rotation_scale[1][0],
-                    self.rotation_scale[1][1] * angle.cos()
-                        - self.rotation_scale[1][2] * angle.sin(),
-                    self.rotation_scale[1][1] * angle.sin()
-                        + self.rotation_scale[1][2] * angle.cos(),
+                    self.rotation_scale[1][1] * c - self.rotation_scale[1][2] * s,
+                    self.rotation_scale[1][1] * s + self.rotation_scale[1][2] * c,
                 ],
                 [
                     self.rotation_scale[2][0],
-                    self.rotation_scale[2][1] * angle.cos()
-                        - self.rotation_scale[2][2] * angle.sin(),
-                    self.rotation_scale[2][1] * angle.sin()
-                        + self.rotation_scale[2][2] * angle.cos(),
+                    self.rotation_scale[2][1] * c - self.rotation_scale[2][2] * s,
+                    self.rotation_scale[2][1] * s + self.rotation_scale[2][2] * c,
                 ],
             ],
             translation: [
                 self.translation[0],
-                self.translation[1] * angle.cos() - self.translation[2] * angle.sin(),
-                self.translation[1] * angle.sin() + self.translation[2] * angle.cos(),
+                self.translation[1] * c - self.translation[2] * s,
+                self.translation[1] * s + self.translation[2] * c,
+            ],
+        }
+    }
+
+    pub fn rotate_x(&self, angle: f32) -> Self {
+        let s = angle.sin();
+        let c = angle.cos();
+        Transform {
+            rotation_scale: [
+                self.rotation_scale[0],
+                [
+                    self.rotation_scale[1][0] * c + self.rotation_scale[2][0] * s,
+                    self.rotation_scale[1][1] * c + self.rotation_scale[2][2] * s,
+                    self.rotation_scale[1][2] * c + self.rotation_scale[2][2] * s,
+                ],
+                [
+                    self.rotation_scale[2][0] * c - self.rotation_scale[1][0] * s,
+                    self.rotation_scale[2][1] * c - self.rotation_scale[1][1] * s,
+                    self.rotation_scale[2][2] * c - self.rotation_scale[1][2] * s,
+                ],
+            ],
+            translation: self.translation,
+        }
+    }
+
+    pub fn rotate_y_world(&self, angle: f32) -> Self {
+        let s = angle.sin();
+        let c = angle.cos();
+        Transform {
+            rotation_scale: [
+                [
+                    self.rotation_scale[0][0] * c + self.rotation_scale[0][2] * s,
+                    self.rotation_scale[0][1],
+                    self.rotation_scale[0][2] * c - self.rotation_scale[0][0] * s,
+                ],
+                [
+                    self.rotation_scale[1][0] * c + self.rotation_scale[1][2] * s,
+                    self.rotation_scale[1][1],
+                    self.rotation_scale[1][2] * c - self.rotation_scale[1][0] * s,
+                ],
+                [
+                    self.rotation_scale[2][0] * c + self.rotation_scale[2][2] * s,
+                    self.rotation_scale[2][1],
+                    self.rotation_scale[2][2] * c - self.rotation_scale[2][0] * s,
+                ],
+            ],
+            translation: [
+                self.translation[0] * c + self.translation[2] * s,
+                self.translation[1],
+                self.translation[2] * c - self.translation[0] * s,
             ],
         }
     }
 
     pub fn rotate_y(&self, angle: f32) -> Self {
+        let s = angle.sin();
+        let c = angle.cos();
         Transform {
             rotation_scale: [
                 [
-                    self.rotation_scale[0][0] * angle.cos()
-                        + self.rotation_scale[0][2] * angle.sin(),
-                    self.rotation_scale[0][1],
-                    self.rotation_scale[0][2] * angle.cos()
-                        - self.rotation_scale[0][0] * angle.sin(),
+                    self.rotation_scale[0][0] * c - self.rotation_scale[2][0] * s,
+                    self.rotation_scale[0][1] * c - self.rotation_scale[2][1] * s,
+                    self.rotation_scale[0][2] * c - self.rotation_scale[2][2] * s,
                 ],
+                self.rotation_scale[1],
                 [
-                    self.rotation_scale[1][0] * angle.cos()
-                        + self.rotation_scale[1][2] * angle.sin(),
-                    self.rotation_scale[1][1],
-                    self.rotation_scale[1][2] * angle.cos()
-                        - self.rotation_scale[1][0] * angle.sin(),
-                ],
-                [
-                    self.rotation_scale[2][0] * angle.cos()
-                        + self.rotation_scale[2][2] * angle.sin(),
-                    self.rotation_scale[2][1],
-                    self.rotation_scale[2][2] * angle.cos()
-                        - self.rotation_scale[2][0] * angle.sin(),
+                    self.rotation_scale[0][0] * s + self.rotation_scale[2][0] * c,
+                    self.rotation_scale[0][1] * s + self.rotation_scale[2][1] * c,
+                    self.rotation_scale[0][2] * s + self.rotation_scale[2][2] * c,
                 ],
             ],
-            translation: [
-                self.translation[0] * angle.cos() + self.translation[2] * angle.sin(),
-                self.translation[1],
-                self.translation[2] * angle.cos() - self.translation[0] * angle.sin(),
-            ],
+            translation: self.translation,
         }
     }
-    pub fn rotate_z(&self, angle: f32) -> Self {
+
+    pub fn rotate_z_world(&self, angle: f32) -> Self {
+        let s = angle.sin();
+        let c = angle.cos();
         Transform {
             rotation_scale: [
                 [
-                    self.rotation_scale[0][0] * angle.cos()
-                        - self.rotation_scale[0][1] * angle.sin(),
-                    self.rotation_scale[0][1] * angle.cos()
-                        + self.rotation_scale[0][0] * angle.sin(),
+                    self.rotation_scale[0][0] * c - self.rotation_scale[0][1] * s,
+                    self.rotation_scale[0][1] * c + self.rotation_scale[0][0] * s,
                     self.rotation_scale[0][2],
                 ],
                 [
-                    self.rotation_scale[1][0] * angle.cos()
-                        - self.rotation_scale[1][1] * angle.sin(),
-                    self.rotation_scale[1][1] * angle.cos()
-                        + self.rotation_scale[1][0] * angle.sin(),
+                    self.rotation_scale[1][0] * c - self.rotation_scale[1][1] * s,
+                    self.rotation_scale[1][1] * c + self.rotation_scale[1][0] * s,
                     self.rotation_scale[1][2],
                 ],
                 [
-                    self.rotation_scale[2][0] * angle.cos()
-                        - self.rotation_scale[2][1] * angle.sin(),
-                    self.rotation_scale[2][1] * angle.cos()
-                        + self.rotation_scale[2][0] * angle.sin(),
+                    self.rotation_scale[2][0] * c - self.rotation_scale[2][1] * s,
+                    self.rotation_scale[2][1] * c + self.rotation_scale[2][0] * s,
                     self.rotation_scale[2][2],
                 ],
             ],
             translation: [
-                self.translation[0] * angle.cos() - self.translation[1] * angle.sin(),
-                self.translation[1] * angle.cos() + self.translation[0] * angle.sin(),
+                self.translation[0] * c - self.translation[1] * s,
+                self.translation[1] * c + self.translation[0] * s,
                 self.translation[2],
             ],
         }
     }
+
+    pub fn rotate_z(&self, angle: f32) -> Self {
+        let s = angle.sin();
+        let c = angle.cos();
+        Transform {
+            rotation_scale: [
+                [
+                    self.rotation_scale[0][0] * c + self.rotation_scale[1][0] * s,
+                    self.rotation_scale[0][1] * c + self.rotation_scale[1][1] * s,
+                    self.rotation_scale[0][2] * c + self.rotation_scale[1][2] * s,
+                ],
+                [
+                    self.rotation_scale[1][0] * c - self.rotation_scale[0][0] * s,
+                    self.rotation_scale[1][1] * c - self.rotation_scale[0][1] * s,
+                    self.rotation_scale[1][2] * c - self.rotation_scale[0][2] * s,
+                ],
+                self.rotation_scale[2],
+            ],
+            translation: self.translation,
+        }
+    }
+
     pub fn reverse(&self) -> Self {
         Transform {
             rotation_scale: [

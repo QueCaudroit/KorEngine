@@ -1,5 +1,6 @@
 // TODO add support for multiple assets and primitives
 
+use input::Input;
 use std::{collections::HashMap, f32::consts::FRAC_PI_2, mem, sync::Arc, time::Instant};
 use vulkano::{
     buffer::{
@@ -31,7 +32,7 @@ use vulkano::{
 };
 use vulkano_win::create_surface_from_winit;
 use winit::{
-    event::{Event, WindowEvent},
+    event::{DeviceEvent, Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     window::Window,
 };
@@ -47,6 +48,7 @@ use crate::{
 pub mod allocators;
 pub mod format_converter;
 pub mod geometry;
+pub mod input;
 pub mod load_gltf;
 pub mod logo;
 pub mod pipeline;
@@ -98,7 +100,7 @@ pub enum GameSceneState {
 }
 pub trait GameScene {
     fn load(&self) -> Vec<LoadRequest>;
-    fn update(&mut self) -> GameSceneState;
+    fn update(&mut self, input: &Input) -> GameSceneState;
     fn display(&self) -> (&Transform, Vec<DisplayRequest>);
 }
 
@@ -131,6 +133,12 @@ pub fn run(event_loop: EventLoop<()>, window: Window, gamescene: Box<dyn GameSce
         } => {
             recreate_swapchain = true;
         }
+        Event::DeviceEvent {
+            device_id: _,
+            event,
+        } => {
+            engine.update_input(event);
+        }
         Event::MainEventsCleared => {
             frames += 1;
             if frames >= 60 {
@@ -141,7 +149,7 @@ pub fn run(event_loop: EventLoop<()>, window: Window, gamescene: Box<dyn GameSce
                 frames = 0;
                 start = now;
             }
-            if !engine.update() {
+            if !engine.update_gamescene() {
                 *control_flow = ControlFlow::Exit
             }
             if recreate_swapchain {
@@ -175,6 +183,7 @@ pub struct Engine {
     pub assets: HashMap<String, Asset>,
     pub uniform_buffer: SubbufferAllocator,
     pub sampler: Arc<Sampler>,
+    pub input: Input,
 }
 
 impl Engine {
@@ -235,6 +244,7 @@ impl Engine {
             assets: HashMap::new(),
             uniform_buffer,
             sampler,
+            input: Input::new(),
         }
     }
 
@@ -259,12 +269,12 @@ impl Engine {
         );
     }
 
-    fn update(&mut self) -> bool {
+    fn update_gamescene(&mut self) -> bool {
         let target_frame_count =
             Instant::now().duration_since(self.start_time).as_millis() * 60 / 1000;
         let frame_delta = (target_frame_count - self.frame_count) as i128;
         for _ in 0..frame_delta {
-            match self.gamescene.update() {
+            match self.gamescene.update(&self.input) {
                 GameSceneState::Continue => self.frame_count += 1,
                 GameSceneState::Stop => return false,
                 GameSceneState::ChangeScene(new_scene) => {
@@ -274,8 +284,13 @@ impl Engine {
                     break;
                 }
             };
+            self.input.reset();
         }
         true
+    }
+
+    pub fn update_input(&mut self, event: DeviceEvent) {
+        self.input.update(event);
     }
 
     fn draw(&mut self) -> bool {
@@ -292,7 +307,10 @@ impl Engine {
         }
         let (camera_transform, displayed_items) = self.gamescene.display();
 
-        let view_proj = camera_transform.project_perspective(FRAC_PI_2, 16.0 / 9.0, 0.1, 100.0);
+        let view_proj =
+            camera_transform
+                .reverse()
+                .project_perspective(FRAC_PI_2, 16.0 / 9.0, 0.1, 100.0);
 
         let mut builder = self.init_command_buffer(image_i);
         for displayed_item in displayed_items {
@@ -310,7 +328,7 @@ impl Engine {
                         },
                         item_pos
                             .iter()
-                            .map(|pos| pos.compose(camera_transform).reverse().translation),
+                            .map(|pos| camera_transform.compose(&pos.reverse()).translation),
                     )
                     .unwrap();
                     let item_pos = Buffer::from_iter(
