@@ -6,6 +6,12 @@ pub struct Input {
     pub gamepad: GamepadInput,
 }
 
+impl Default for Input {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Input {
     pub fn new() -> Self {
         Self {
@@ -50,6 +56,12 @@ pub struct MouseInput {
     pub raw_y: f64,
 }
 
+impl Default for MouseInput {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MouseInput {
     pub fn new() -> Self {
         Self {
@@ -72,6 +84,12 @@ pub struct KeyboardInput {
     pub keys: [KeyState; 163],
 }
 
+impl Default for KeyboardInput {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl KeyboardInput {
     pub fn new() -> Self {
         Self {
@@ -91,6 +109,12 @@ pub struct KeyState {
     pub state: bool,
     pub released: bool,
     pub pressed: bool,
+}
+
+impl Default for KeyState {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl KeyState {

@@ -80,10 +80,10 @@ pub fn convert_R16G16B16A16(data: &Vec<u8>) -> Vec<u8> {
 pub fn convert_R8(data: &Vec<u8>) -> Vec<u8> {
     let size = data.len();
     let mut result = Vec::with_capacity(size * 4);
-    for i in 0..size {
+    for &byte in data {
         result.push(0);
         result.push(0);
-        result.push(data[i]);
+        result.push(byte);
         result.push(u8::MAX);
     }
     result
