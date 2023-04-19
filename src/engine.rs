@@ -50,7 +50,6 @@ pub mod format_converter;
 pub mod geometry;
 pub mod input;
 pub mod load_gltf;
-pub mod logo;
 pub mod pipeline;
 pub mod shaders;
 
