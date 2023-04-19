@@ -36,11 +36,11 @@ impl Engine {
     pub fn load(&mut self, request: LoadRequest) {
         self.assets.insert(
             request.loaded_name,
-            self.load_asset(request.filename, request.mesh_name),
+            self.load_asset(request.filename, request.mesh_name, request.base_scale),
         );
     }
 
-    pub fn load_asset(&self, filename: String, mesh_name: String) -> Asset {
+    pub fn load_asset(&self, filename: String, mesh_name: String, base_scale: f32) -> Asset {
         let (gltf_document, gltf_buffers, gltf_images) = gltf::import(filename).unwrap();
         let mesh = gltf_document
             .meshes()
@@ -76,10 +76,9 @@ impl Engine {
                 usage: MemoryUsage::Upload,
                 ..Default::default()
             },
-            reader
-                .read_positions()
-                .unwrap()
-                .map(|p| Position { position: p }),
+            reader.read_positions().unwrap().map(|p| Position {
+                position: [p[0] * base_scale, p[1] * base_scale, p[2] * base_scale],
+            }),
         )
         .unwrap();
         let normal_buffer_option = reader.read_normals().map(|buffer| {

@@ -108,6 +108,7 @@ pub struct LoadRequest {
     pub loaded_name: String,
     pub filename: String,
     pub mesh_name: String,
+    pub base_scale: f32,
 }
 
 pub fn run(event_loop: EventLoop<()>, window: Window, gamescene: Box<dyn GameScene>) {

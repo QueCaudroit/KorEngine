@@ -8,7 +8,7 @@ use kor_engine::{
 
 const SIZE: usize = 10;
 const ROTATION_SPEED: f32 = 0.5;
-const TRANSLATION_SPEED: f32 = 2.0;
+const TRANSLATION_SPEED: f32 = 5.0;
 const FRAME_TIME: f32 = 1.0 / 60.0;
 
 struct Scene {
@@ -39,11 +39,13 @@ impl GameScene for Scene {
                 loaded_name: "monkey".to_owned(),
                 filename: "./monkey.glb".to_owned(),
                 mesh_name: "Suzanne".to_owned(),
+                base_scale: 1.0,
             },
             LoadRequest {
                 loaded_name: "fox".to_owned(),
                 filename: "./Fox.glb".to_owned(),
                 mesh_name: "fox1".to_owned(),
+                base_scale: 0.02,
             },
         ]
     }
@@ -81,7 +83,6 @@ impl GameScene for Scene {
                 for z in 0..SIZE {
                     foxes.push(
                         Transform::new()
-                            .scale([0.02; 3])
                             .rotate_y_world(self.angle)
                             .translate_world([3.5 * x as f32, 3.5 * y as f32, 3.5 * z as f32]),
                     )
