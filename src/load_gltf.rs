@@ -22,7 +22,7 @@ pub enum SamplerMode {
     Default,
 }
 
-pub enum Asset {
+pub enum Primitive {
     Basic(Subbuffer<[Position]>, Subbuffer<[Normal]>, [f32; 4]),
     Textured(
         Subbuffer<[Position]>,
@@ -40,7 +40,12 @@ impl Engine {
         );
     }
 
-    pub fn load_asset(&self, filename: String, mesh_name: String, base_scale: f32) -> Asset {
+    pub fn load_asset(
+        &self,
+        filename: String,
+        mesh_name: String,
+        base_scale: f32,
+    ) -> Vec<Primitive> {
         let (gltf_document, gltf_buffers, gltf_images) = gltf::import(filename).unwrap();
         let mesh = gltf_document
             .meshes()
@@ -49,40 +54,25 @@ impl Engine {
                 None => false,
             })
             .unwrap();
-        let primitive = mesh.primitives().next().unwrap();
-        let reader = primitive.reader(|buffer| Some(&gltf_buffers[buffer.index()]));
-        let index_buffer_option = reader.read_indices().map(|buffer| {
-            Buffer::from_iter(
-                &self.allocators.memory,
-                BufferCreateInfo {
-                    usage: BufferUsage::STORAGE_BUFFER.union(BufferUsage::INDEX_BUFFER),
-                    ..Default::default()
-                },
-                AllocationCreateInfo {
-                    usage: MemoryUsage::Upload,
-                    ..Default::default()
-                },
-                buffer.into_u32(),
-            )
-            .unwrap()
-        });
-        let vertex_buffer_temp = Buffer::from_iter(
-            &self.allocators.memory,
-            BufferCreateInfo {
-                usage: BufferUsage::STORAGE_BUFFER.union(BufferUsage::TRANSFER_SRC),
-                ..Default::default()
-            },
-            AllocationCreateInfo {
-                usage: MemoryUsage::Upload,
-                ..Default::default()
-            },
-            reader.read_positions().unwrap().map(|p| Position {
-                position: [p[0] * base_scale, p[1] * base_scale, p[2] * base_scale],
-            }),
-        )
-        .unwrap();
-        let normal_buffer_option = reader.read_normals().map(|buffer| {
-            Buffer::from_iter(
+        let mut primitives = Vec::new();
+        for primitive in mesh.primitives() {
+            let reader = primitive.reader(|buffer| Some(&gltf_buffers[buffer.index()]));
+            let index_buffer_option = reader.read_indices().map(|buffer| {
+                Buffer::from_iter(
+                    &self.allocators.memory,
+                    BufferCreateInfo {
+                        usage: BufferUsage::STORAGE_BUFFER.union(BufferUsage::INDEX_BUFFER),
+                        ..Default::default()
+                    },
+                    AllocationCreateInfo {
+                        usage: MemoryUsage::Upload,
+                        ..Default::default()
+                    },
+                    buffer.into_u32(),
+                )
+                .unwrap()
+            });
+            let vertex_buffer_temp = Buffer::from_iter(
                 &self.allocators.memory,
                 BufferCreateInfo {
                     usage: BufferUsage::STORAGE_BUFFER.union(BufferUsage::TRANSFER_SRC),
@@ -92,53 +82,76 @@ impl Engine {
                     usage: MemoryUsage::Upload,
                     ..Default::default()
                 },
-                buffer.map(|n| Normal { normal: n }),
-            )
-            .unwrap()
-        });
-        let vertex_buffer = self.load_vertex(vertex_buffer_temp, &index_buffer_option);
-        let normal_buffer = self.load_normal(
-            vertex_buffer.clone(),
-            &index_buffer_option,
-            &normal_buffer_option,
-        );
-        if let Some(texture) = primitive
-            .material()
-            .pbr_metallic_roughness()
-            .base_color_texture()
-        {
-            let tex_coord_temp = Buffer::from_iter(
-                &self.allocators.memory,
-                BufferCreateInfo {
-                    usage: BufferUsage::STORAGE_BUFFER.union(BufferUsage::TRANSFER_SRC),
-                    ..Default::default()
-                },
-                AllocationCreateInfo {
-                    usage: MemoryUsage::Upload,
-                    ..Default::default()
-                },
-                reader
-                    .read_tex_coords(texture.tex_coord())
-                    .unwrap()
-                    .into_f32(),
+                reader.read_positions().unwrap().map(|p| Position {
+                    position: [p[0] * base_scale, p[1] * base_scale, p[2] * base_scale],
+                }),
             )
             .unwrap();
-            let image_data = &gltf_images[texture.texture().source().index()];
-
-            let (tex_coord, image) = self.load_texture(
-                vertex_buffer.len(),
-                tex_coord_temp,
+            let normal_buffer_option = reader.read_normals().map(|buffer| {
+                Buffer::from_iter(
+                    &self.allocators.memory,
+                    BufferCreateInfo {
+                        usage: BufferUsage::STORAGE_BUFFER.union(BufferUsage::TRANSFER_SRC),
+                        ..Default::default()
+                    },
+                    AllocationCreateInfo {
+                        usage: MemoryUsage::Upload,
+                        ..Default::default()
+                    },
+                    buffer.map(|n| Normal { normal: n }),
+                )
+                .unwrap()
+            });
+            let vertex_buffer = self.load_vertex(vertex_buffer_temp, &index_buffer_option);
+            let normal_buffer = self.load_normal(
+                vertex_buffer.clone(),
                 &index_buffer_option,
-                image_data,
+                &normal_buffer_option,
             );
-            Asset::Textured(vertex_buffer, normal_buffer, tex_coord, image)
-        } else {
-            let color = primitive
+            if let Some(texture) = primitive
                 .material()
                 .pbr_metallic_roughness()
-                .base_color_factor();
-            Asset::Basic(vertex_buffer, normal_buffer, color)
+                .base_color_texture()
+            {
+                let tex_coord_temp = Buffer::from_iter(
+                    &self.allocators.memory,
+                    BufferCreateInfo {
+                        usage: BufferUsage::STORAGE_BUFFER.union(BufferUsage::TRANSFER_SRC),
+                        ..Default::default()
+                    },
+                    AllocationCreateInfo {
+                        usage: MemoryUsage::Upload,
+                        ..Default::default()
+                    },
+                    reader
+                        .read_tex_coords(texture.tex_coord())
+                        .unwrap()
+                        .into_f32(),
+                )
+                .unwrap();
+                let image_data = &gltf_images[texture.texture().source().index()];
+
+                let (tex_coord, image) = self.load_texture(
+                    vertex_buffer.len(),
+                    tex_coord_temp,
+                    &index_buffer_option,
+                    image_data,
+                );
+                primitives.push(Primitive::Textured(
+                    vertex_buffer,
+                    normal_buffer,
+                    tex_coord,
+                    image,
+                ));
+            } else {
+                let color = primitive
+                    .material()
+                    .pbr_metallic_roughness()
+                    .base_color_factor();
+                primitives.push(Primitive::Basic(vertex_buffer, normal_buffer, color));
+            }
         }
+        primitives
     }
 
     fn load_vertex(

@@ -1,5 +1,3 @@
-// TODO add support for multiple assets and primitives
-
 use input::Input;
 use std::{collections::HashMap, f32::consts::FRAC_PI_2, mem, sync::Arc, time::Instant};
 use vulkano::{
@@ -40,7 +38,7 @@ use winit::{
 use crate::{
     allocators::AllocatorCollection,
     geometry::Transform,
-    load_gltf::Asset,
+    load_gltf::Primitive,
     pipeline::PipelineCollection,
     shaders::{basic_vertex_shader, textured_vertex_shader},
 };
@@ -180,7 +178,7 @@ pub struct Engine {
     pub start_time: Instant,
     pub gamescene: Box<dyn GameScene>,
     pub previous_frame_end: Box<dyn GpuFuture>,
-    pub assets: HashMap<String, Asset>,
+    pub assets: HashMap<String, Vec<Primitive>>,
     pub uniform_buffer: SubbufferAllocator,
     pub sampler: Arc<Sampler>,
     pub input: Input,
@@ -344,13 +342,15 @@ impl Engine {
                         item_pos.iter().map(|pos| pos.to_homogeneous()),
                     )
                     .unwrap();
-                    self.add_asset_to_command_buffer(
-                        self.assets.get(item_name).unwrap(),
-                        view_proj,
-                        item_pos,
-                        camera_positions,
-                        &mut builder,
-                    );
+                    for primive in self.assets.get(item_name).unwrap() {
+                        self.add_primitive_to_command_buffer(
+                            primive,
+                            view_proj,
+                            item_pos.clone(),
+                            camera_positions.clone(),
+                            &mut builder,
+                        );
+                    }
                 }
             }
         }
@@ -407,17 +407,17 @@ impl Engine {
         builder.build().unwrap()
     }
 
-    fn add_asset_to_command_buffer(
+    fn add_primitive_to_command_buffer(
         &self,
-        asset: &Asset,
+        primitive: &Primitive,
         view_proj: [[f32; 4]; 4],
         item_pos: Subbuffer<[[[f32; 4]; 4]]>,
         camera_position: Subbuffer<[[f32; 3]]>,
         builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
     ) {
         let instance_count = camera_position.len();
-        match asset {
-            Asset::Basic(position_buffer, normal_buffer, color) => {
+        match primitive {
+            Primitive::Basic(position_buffer, normal_buffer, color) => {
                 let uniform_subbuffer = self.uniform_buffer.allocate_sized().unwrap();
                 *uniform_subbuffer.write().unwrap() = basic_vertex_shader::UniformBufferObject {
                     color: *color,
@@ -450,7 +450,7 @@ impl Engine {
                     .draw(position_buffer.len() as u32, instance_count as u32, 0, 0)
                     .unwrap();
             }
-            Asset::Textured(position_buffer, normal_buffer, texture_coord, texture) => {
+            Primitive::Textured(position_buffer, normal_buffer, texture_coord, texture) => {
                 let uniform_subbuffer = self.uniform_buffer.allocate_sized().unwrap();
                 *uniform_subbuffer.write().unwrap() =
                     textured_vertex_shader::UniformBufferObject { view_proj };
