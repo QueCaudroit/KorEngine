@@ -1,5 +1,6 @@
 use std::ops::{Add, Mul, Sub};
 
+#[derive(Clone, Copy)]
 pub struct Transform {
     pub rotation_scale: [[f32; 3]; 3],
     pub translation: [f32; 3],

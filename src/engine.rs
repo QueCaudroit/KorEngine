@@ -1,5 +1,5 @@
 use input::Input;
-use std::{collections::HashMap, f32::consts::FRAC_PI_2, mem, sync::Arc, time::Instant};
+use std::{f32::consts::FRAC_PI_2, mem, sync::Arc, time::Instant};
 use vulkano::{
     buffer::{
         allocator::{SubbufferAllocator, SubbufferAllocatorCreateInfo},
@@ -86,8 +86,8 @@ pub struct Model {
     pub model: [[f32; 4]; 4],
 }
 
-pub enum DisplayRequest {
-    InWorldSpace(String, Vec<Transform>),
+pub enum DisplayRequest<'a> {
+    InWorldSpace(usize, &'a [Transform]),
 }
 
 pub enum GameSceneState {
@@ -96,24 +96,65 @@ pub enum GameSceneState {
     ChangeScene(Box<dyn GameScene>),
 }
 pub trait GameScene {
-    fn load(&self) -> Vec<LoadRequest>;
+    fn load(&mut self, loader: &mut dyn Loader);
     fn update(&mut self, input: &Input) -> GameSceneState;
-    fn display(&self) -> (&Transform, Vec<DisplayRequest>);
+    fn display(&self, drawer: &mut dyn Drawer);
 }
 
-pub struct LoadRequest {
-    pub loaded_name: String,
-    pub filename: String,
-    pub mesh_name: String,
-    pub base_scale: f32,
+struct GameLoop {
+    gamescene: Box<dyn GameScene>,
+    engine: Engine,
+    pub frame_count: u128,
+    pub start_time: Instant,
+    pub input: Input,
+}
+impl GameLoop {
+    fn new(gamescene: Box<dyn GameScene>, window: Arc<Window>) -> Self {
+        Self {
+            engine: Engine::new(window),
+            gamescene,
+            frame_count: 0,
+            start_time: Instant::now(),
+            input: Input::new(),
+        }
+    }
+
+    fn update_gamescene(&mut self) -> bool {
+        let target_frame_count =
+            Instant::now().duration_since(self.start_time).as_millis() * 60 / 1000;
+        let frame_delta = (target_frame_count - self.frame_count) as i128;
+        for _ in 0..frame_delta {
+            match self.gamescene.update(&self.input) {
+                GameSceneState::Continue => self.frame_count += 1,
+                GameSceneState::Stop => return false,
+                GameSceneState::ChangeScene(new_scene) => {
+                    self.gamescene = new_scene;
+                    self.frame_count = 0;
+                    self.start_time = Instant::now();
+                    break;
+                }
+            };
+            self.input.reset();
+        }
+        true
+    }
+
+    pub fn update_input(&mut self, event: DeviceEvent) {
+        self.input.update(event);
+    }
+}
+pub trait Loader {
+    fn load(&mut self, asset: &str, mesh: &str, base_scale: f32) -> usize;
+}
+
+pub trait Drawer {
+    fn draw(&mut self, camera_transform: Transform, display_request: &[DisplayRequest]);
 }
 
 pub fn run(event_loop: EventLoop<()>, window: Window, gamescene: Box<dyn GameScene>) {
     let window = Arc::new(window);
-    let mut engine = Engine::new(window.clone(), gamescene);
-    for request in engine.gamescene.load() {
-        engine.load(request);
-    }
+    let mut gameloop = GameLoop::new(gamescene, window.clone());
+    gameloop.gamescene.load(&mut gameloop.engine);
     let mut recreate_swapchain = false;
     window.set_visible(true);
     let mut start = Instant::now();
@@ -135,7 +176,7 @@ pub fn run(event_loop: EventLoop<()>, window: Window, gamescene: Box<dyn GameSce
             device_id: _,
             event,
         } => {
-            engine.update_input(event);
+            gameloop.update_input(event);
         }
         Event::MainEventsCleared => {
             frames += 1;
@@ -147,16 +188,18 @@ pub fn run(event_loop: EventLoop<()>, window: Window, gamescene: Box<dyn GameSce
                 frames = 0;
                 start = now;
             }
-            if !engine.update_gamescene() {
+            if !gameloop.update_gamescene() {
                 *control_flow = ControlFlow::Exit
             }
             if recreate_swapchain {
                 let new_dimensions = window.inner_size();
                 if new_dimensions.width > 0 && new_dimensions.height > 0 {
-                    engine.resize_window(new_dimensions.into());
+                    gameloop.engine.resize_window(new_dimensions.into());
                 }
+                gameloop.engine.recreate_swapchain = false;
             }
-            recreate_swapchain = engine.draw();
+            gameloop.gamescene.display(&mut gameloop.engine);
+            recreate_swapchain = gameloop.engine.recreate_swapchain;
         }
         _ => {}
     });
@@ -174,18 +217,15 @@ pub struct Engine {
     pub allocators: AllocatorCollection,
     pub images: Vec<Arc<SwapchainImage>>,
     pub framebuffers: Vec<Arc<Framebuffer>>,
-    pub frame_count: u128,
-    pub start_time: Instant,
-    pub gamescene: Box<dyn GameScene>,
     pub previous_frame_end: Box<dyn GpuFuture>,
-    pub assets: HashMap<String, Vec<Primitive>>,
+    pub assets: Vec<Vec<Primitive>>,
     pub uniform_buffer: SubbufferAllocator,
     pub sampler: Arc<Sampler>,
-    pub input: Input,
+    pub recreate_swapchain: bool,
 }
 
 impl Engine {
-    fn new(window: Arc<Window>, gamescene: Box<dyn GameScene>) -> Self {
+    fn new(window: Arc<Window>) -> Self {
         let (surface, caps, image_format, device, queue, render_pass) = engine_init(window.clone());
         let allocators = AllocatorCollection::new(device.clone());
         let composite_alpha = caps.supported_composite_alpha.into_iter().next().unwrap();
@@ -235,14 +275,11 @@ impl Engine {
             allocators,
             images,
             framebuffers,
-            frame_count: 0,
-            start_time: Instant::now(),
-            gamescene,
             previous_frame_end,
-            assets: HashMap::new(),
+            assets: Vec::new(),
             uniform_buffer,
             sampler,
-            input: Input::new(),
+            recreate_swapchain: false,
         }
     }
 
@@ -265,115 +302,6 @@ impl Engine {
             self.render_pass.clone(),
             &dimensions,
         );
-    }
-
-    fn update_gamescene(&mut self) -> bool {
-        let target_frame_count =
-            Instant::now().duration_since(self.start_time).as_millis() * 60 / 1000;
-        let frame_delta = (target_frame_count - self.frame_count) as i128;
-        for _ in 0..frame_delta {
-            match self.gamescene.update(&self.input) {
-                GameSceneState::Continue => self.frame_count += 1,
-                GameSceneState::Stop => return false,
-                GameSceneState::ChangeScene(new_scene) => {
-                    self.gamescene = new_scene;
-                    self.frame_count = 0;
-                    self.start_time = Instant::now();
-                    break;
-                }
-            };
-            self.input.reset();
-        }
-        true
-    }
-
-    pub fn update_input(&mut self, event: DeviceEvent) {
-        self.input.update(event);
-    }
-
-    fn draw(&mut self) -> bool {
-        let (image_i, suboptimal, acquire_future) =
-            match acquire_next_image(self.swapchain.clone(), None) {
-                Ok(r) => (r.0 as usize, r.1, r.2),
-                Err(AcquireError::OutOfDate) => {
-                    return true;
-                }
-                Err(e) => panic!("Failed to acquire next image: {:?}", e),
-            };
-        if suboptimal {
-            return true;
-        }
-        let (camera_transform, displayed_items) = self.gamescene.display();
-
-        let view_proj =
-            camera_transform
-                .reverse()
-                .project_perspective(FRAC_PI_2, 16.0 / 9.0, 0.1, 100.0);
-
-        let mut builder = self.init_command_buffer(image_i);
-        for displayed_item in displayed_items {
-            match &displayed_item {
-                DisplayRequest::InWorldSpace(item_name, item_pos) => {
-                    let camera_positions = Buffer::from_iter(
-                        &self.allocators.memory,
-                        BufferCreateInfo {
-                            usage: BufferUsage::VERTEX_BUFFER,
-                            ..Default::default()
-                        },
-                        AllocationCreateInfo {
-                            usage: MemoryUsage::Upload,
-                            ..Default::default()
-                        },
-                        item_pos
-                            .iter()
-                            .map(|pos| camera_transform.compose(&pos.reverse()).translation),
-                    )
-                    .unwrap();
-                    let item_pos = Buffer::from_iter(
-                        &self.allocators.memory,
-                        BufferCreateInfo {
-                            usage: BufferUsage::VERTEX_BUFFER,
-                            ..Default::default()
-                        },
-                        AllocationCreateInfo {
-                            usage: MemoryUsage::Upload,
-                            ..Default::default()
-                        },
-                        item_pos.iter().map(|pos| pos.to_homogeneous()),
-                    )
-                    .unwrap();
-                    for primive in self.assets.get(item_name).unwrap() {
-                        self.add_primitive_to_command_buffer(
-                            primive,
-                            view_proj,
-                            item_pos.clone(),
-                            camera_positions.clone(),
-                            &mut builder,
-                        );
-                    }
-                }
-            }
-        }
-        let command_buffer = self.end_command_buffer(builder);
-        self.previous_frame_end.cleanup_finished();
-        let mut temp_future = sync::now(self.device.clone()).boxed();
-        mem::swap(&mut temp_future, &mut self.previous_frame_end);
-
-        let future = temp_future
-            .join(acquire_future)
-            .then_execute(self.queue.clone(), command_buffer)
-            .unwrap()
-            .then_swapchain_present(
-                self.queue.clone(),
-                SwapchainPresentInfo::swapchain_image_index(self.swapchain.clone(), image_i as u32),
-            )
-            .then_signal_fence_and_flush();
-
-        if matches!(future, Err(FlushError::OutOfDate)) {
-            return true;
-        }
-        self.previous_frame_end = future.expect("Failed to flush future").boxed();
-        false
     }
 
     fn init_command_buffer(
@@ -496,6 +424,93 @@ impl Engine {
                     .unwrap();
             }
         }
+    }
+}
+
+impl Drawer for Engine {
+    fn draw(&mut self, camera_transform: Transform, display_request: &[DisplayRequest]) {
+        let (image_i, suboptimal, acquire_future) =
+            match acquire_next_image(self.swapchain.clone(), None) {
+                Ok(r) => (r.0 as usize, r.1, r.2),
+                Err(AcquireError::OutOfDate) => {
+                    self.recreate_swapchain = true;
+                    return;
+                }
+                Err(e) => panic!("Failed to acquire next image: {:?}", e),
+            };
+        if suboptimal {
+            self.recreate_swapchain = true;
+            return;
+        }
+        let view_proj =
+            camera_transform
+                .reverse()
+                .project_perspective(FRAC_PI_2, 16.0 / 9.0, 0.1, 100.0);
+
+        let mut builder = self.init_command_buffer(image_i);
+        for displayed_item in display_request {
+            match *displayed_item {
+                DisplayRequest::InWorldSpace(item_name, item_pos) => {
+                    let camera_positions = Buffer::from_iter(
+                        &self.allocators.memory,
+                        BufferCreateInfo {
+                            usage: BufferUsage::VERTEX_BUFFER,
+                            ..Default::default()
+                        },
+                        AllocationCreateInfo {
+                            usage: MemoryUsage::Upload,
+                            ..Default::default()
+                        },
+                        item_pos
+                            .iter()
+                            .map(|pos| camera_transform.compose(&pos.reverse()).translation),
+                    )
+                    .unwrap();
+                    let item_pos = Buffer::from_iter(
+                        &self.allocators.memory,
+                        BufferCreateInfo {
+                            usage: BufferUsage::VERTEX_BUFFER,
+                            ..Default::default()
+                        },
+                        AllocationCreateInfo {
+                            usage: MemoryUsage::Upload,
+                            ..Default::default()
+                        },
+                        item_pos.iter().map(|pos| pos.to_homogeneous()),
+                    )
+                    .unwrap();
+                    for primive in self.assets.get(item_name).unwrap() {
+                        self.add_primitive_to_command_buffer(
+                            primive,
+                            view_proj,
+                            item_pos.clone(),
+                            camera_positions.clone(),
+                            &mut builder,
+                        );
+                    }
+                }
+            }
+        }
+        let command_buffer = self.end_command_buffer(builder);
+        self.previous_frame_end.cleanup_finished();
+        let mut temp_future = sync::now(self.device.clone()).boxed();
+        mem::swap(&mut temp_future, &mut self.previous_frame_end);
+
+        let future = temp_future
+            .join(acquire_future)
+            .then_execute(self.queue.clone(), command_buffer)
+            .unwrap()
+            .then_swapchain_present(
+                self.queue.clone(),
+                SwapchainPresentInfo::swapchain_image_index(self.swapchain.clone(), image_i as u32),
+            )
+            .then_signal_fence_and_flush();
+
+        if matches!(future, Err(FlushError::OutOfDate)) {
+            self.recreate_swapchain = true;
+            return;
+        }
+        self.previous_frame_end = future.expect("Failed to flush future").boxed();
     }
 }
 

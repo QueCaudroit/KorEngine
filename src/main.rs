@@ -3,7 +3,8 @@ use std::{f32::consts::TAU, time::Instant};
 use winit::{event::VirtualKeyCode, event_loop::EventLoop, window::Icon, window::WindowBuilder};
 
 use kor_engine::{
-    geometry::Transform, input::Input, run, DisplayRequest, GameScene, GameSceneState, LoadRequest,
+    geometry::Transform, input::Input, run, DisplayRequest, Drawer, GameScene, GameSceneState,
+    Loader,
 };
 
 const SIZE: usize = 10;
@@ -16,6 +17,8 @@ struct Scene {
     start_time: Instant,
     angle: f32,
     camera: Transform,
+    fox_id: Option<usize>,
+    monkey_id: Option<usize>,
 }
 
 impl Scene {
@@ -28,26 +31,16 @@ impl Scene {
                 [1.0, 2.0, -20.0],
                 [SIZE as f32 * 1.7, 2.0, SIZE as f32 * 1.7],
             ),
+            fox_id: None,
+            monkey_id: None,
         }
     }
 }
 
 impl GameScene for Scene {
-    fn load(&self) -> Vec<LoadRequest> {
-        vec![
-            LoadRequest {
-                loaded_name: "monkey".to_owned(),
-                filename: "./monkey.glb".to_owned(),
-                mesh_name: "Suzanne".to_owned(),
-                base_scale: 1.0,
-            },
-            LoadRequest {
-                loaded_name: "fox".to_owned(),
-                filename: "./Fox.glb".to_owned(),
-                mesh_name: "fox1".to_owned(),
-                base_scale: 0.02,
-            },
-        ]
+    fn load(&mut self, loader: &mut dyn Loader) {
+        self.fox_id = Some(loader.load("./Fox.glb", "fox1", 0.02));
+        self.monkey_id = Some(loader.load("./monkey.glb", "Suzanne", 1.0));
     }
 
     fn update(&mut self, input: &Input) -> GameSceneState {
@@ -76,7 +69,7 @@ impl GameScene for Scene {
         GameSceneState::Continue
     }
 
-    fn display(&self) -> (&Transform, Vec<DisplayRequest>) {
+    fn display(&self, drawer: &mut dyn Drawer) {
         let mut foxes = Vec::with_capacity(SIZE * SIZE * SIZE);
         for x in 0..SIZE {
             for y in 0..SIZE {
@@ -89,18 +82,23 @@ impl GameScene for Scene {
                 }
             }
         }
-        (
-            &self.camera,
-            vec![
-                DisplayRequest::InWorldSpace("fox".to_owned(), foxes),
-                DisplayRequest::InWorldSpace(
-                    "monkey".to_owned(),
-                    vec![Transform::new()
-                        .rotate_y_world(self.angle)
-                        .translate_world([-3.5, 0.0, 0.0])],
-                ),
-            ],
-        )
+        match (self.fox_id, self.monkey_id) {
+            (Some(fox), Some(monkey)) => {
+                drawer.draw(
+                    self.camera,
+                    &[
+                        DisplayRequest::InWorldSpace(fox, &foxes),
+                        DisplayRequest::InWorldSpace(
+                            monkey,
+                            &[Transform::new()
+                                .rotate_y_world(self.angle)
+                                .translate_world([-3.5, 0.0, 0.0])],
+                        ),
+                    ],
+                );
+            }
+            _ => panic!("scene not fully loaded"),
+        }
     }
 }
 

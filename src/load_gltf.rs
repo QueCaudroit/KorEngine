@@ -12,11 +12,13 @@ use vulkano::{
     sync::{self, GpuFuture},
 };
 
-use crate::format_converter::{
-    convert_R16, convert_R16G16, convert_R16G16B16, convert_R16G16B16A16, convert_R32G32B32,
-    convert_R32G32B32A32, convert_R8, convert_R8G8, convert_R8G8B8, convert_R8G8B8A8,
+use crate::{
+    format_converter::{
+        convert_R16, convert_R16G16, convert_R16G16B16, convert_R16G16B16A16, convert_R32G32B32,
+        convert_R32G32B32A32, convert_R8, convert_R8G8, convert_R8G8B8, convert_R8G8B8A8,
+    },
+    Engine, Loader, Normal, Position,
 };
-use crate::{Engine, LoadRequest, Normal, Position};
 
 pub enum SamplerMode {
     Default,
@@ -32,20 +34,15 @@ pub enum Primitive {
     ),
 }
 
-impl Engine {
-    pub fn load(&mut self, request: LoadRequest) {
-        self.assets.insert(
-            request.loaded_name,
-            self.load_asset(request.filename, request.mesh_name, request.base_scale),
-        );
+impl Loader for Engine {
+    fn load(&mut self, asset: &str, mesh: &str, base_scale: f32) -> usize {
+        self.assets.push(self.load_asset(asset, mesh, base_scale));
+        self.assets.len() - 1
     }
+}
 
-    pub fn load_asset(
-        &self,
-        filename: String,
-        mesh_name: String,
-        base_scale: f32,
-    ) -> Vec<Primitive> {
+impl Engine {
+    pub fn load_asset(&self, filename: &str, mesh_name: &str, base_scale: f32) -> Vec<Primitive> {
         let (gltf_document, gltf_buffers, gltf_images) = gltf::import(filename).unwrap();
         let mesh = gltf_document
             .meshes()
