@@ -10,7 +10,7 @@ categories = ["game-engines"]
 
 
 [lib]
-path = "src/engine.rs"
+path = "src/lib.rs"
 
 [[bin]]
 name = "example"

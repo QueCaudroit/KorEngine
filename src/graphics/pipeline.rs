@@ -14,7 +14,10 @@ use vulkano::{
     render_pass::{RenderPass, Subpass},
 };
 
-use crate::{shaders::ShaderCollection, CameraPosition, Model, Normal, Position, TextureCoord};
+use crate::graphics::{
+    engine::{CameraPosition, Model, Normal, Position, TextureCoord},
+    shaders::ShaderCollection,
+};
 
 pub struct PipelineCollection {
     pub basic: Arc<GraphicsPipeline>,

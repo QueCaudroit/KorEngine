@@ -5,49 +5,49 @@ use vulkano::shader::ShaderModule;
 pub mod basic_fragment_shader {
     vulkano_shaders::shader! {
         ty: "fragment",
-        path: "src/shaders/basic_fragment.glsl"
+        path: "src/graphics/shaders/basic_fragment.glsl"
     }
 }
 
 pub mod basic_vertex_shader {
     vulkano_shaders::shader! {
         ty: "vertex",
-        path: "src/shaders/basic_vertex.glsl"
+        path: "src/graphics/shaders/basic_vertex.glsl"
     }
 }
 
 pub mod textured_vertex_shader {
     vulkano_shaders::shader! {
         ty: "vertex",
-        path: "src/shaders/textured_vertex.glsl",
+        path: "src/graphics/shaders/textured_vertex.glsl",
     }
 }
 
 pub mod textured_fragment_shader {
     vulkano_shaders::shader! {
         ty: "fragment",
-        path: "src/shaders/textured_fragment.glsl",
+        path: "src/graphics/shaders/textured_fragment.glsl",
     }
 }
 
 pub mod unindex_vec3_shader {
     vulkano_shaders::shader! {
         ty: "compute",
-        path: "src/shaders/unindex_vec3.glsl"
+        path: "src/graphics/shaders/unindex_vec3.glsl"
     }
 }
 
 pub mod unindex_vec2_shader {
     vulkano_shaders::shader! {
         ty: "compute",
-        path: "src/shaders/unindex_vec2.glsl"
+        path: "src/graphics/shaders/unindex_vec2.glsl"
     }
 }
 
 pub mod normal_shader {
     vulkano_shaders::shader! {
         ty: "compute",
-        path: "src/shaders/normal.glsl"
+        path: "src/graphics/shaders/normal.glsl"
     }
 }
 

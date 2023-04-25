@@ -13,11 +13,15 @@ use vulkano::{
 };
 
 use crate::{
-    format_converter::{
-        convert_R16, convert_R16G16, convert_R16G16B16, convert_R16G16B16A16, convert_R32G32B32,
-        convert_R32G32B32A32, convert_R8, convert_R8G8, convert_R8G8B8, convert_R8G8B8A8,
+    graphics::{
+        engine::{Engine, Normal, Position},
+        format_converter::{
+            convert_R16, convert_R16G16, convert_R16G16B16, convert_R16G16B16A16,
+            convert_R32G32B32, convert_R32G32B32A32, convert_R8, convert_R8G8, convert_R8G8B8,
+            convert_R8G8B8A8,
+        },
     },
-    Engine, Loader, Normal, Position,
+    Loader,
 };
 
 pub enum SamplerMode {
