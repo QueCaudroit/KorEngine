@@ -39,7 +39,7 @@ impl Scene {
 
 impl GameScene for Scene {
     fn load(&mut self, loader: &mut dyn Loader) {
-        self.fox_id = Some(loader.load("./Fox.glb", "fox1", 0.02));
+        self.fox_id = Some(loader.load("./Fox.glb", "fox", 0.02));
         self.monkey_id = Some(loader.load("./monkey.glb", "Suzanne", 1.0));
     }
 

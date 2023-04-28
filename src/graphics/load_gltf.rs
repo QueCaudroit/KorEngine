@@ -39,22 +39,23 @@ pub enum Primitive {
 }
 
 impl Loader for Engine {
-    fn load(&mut self, asset: &str, mesh: &str, base_scale: f32) -> usize {
-        self.assets.push(self.load_asset(asset, mesh, base_scale));
+    fn load(&mut self, asset: &str, node: &str, base_scale: f32) -> usize {
+        self.assets.push(self.load_asset(asset, node, base_scale));
         self.assets.len() - 1
     }
 }
 
 impl Engine {
-    pub fn load_asset(&self, filename: &str, mesh_name: &str, base_scale: f32) -> Vec<Primitive> {
+    pub fn load_asset(&self, filename: &str, node_name: &str, base_scale: f32) -> Vec<Primitive> {
         let (gltf_document, gltf_buffers, gltf_images) = gltf::import(filename).unwrap();
-        let mesh = gltf_document
-            .meshes()
-            .find(|m| match m.name() {
-                Some(name) => name == mesh_name,
+        let node = gltf_document
+            .nodes()
+            .find(|n| match n.name() {
+                Some(name) => name == node_name,
                 None => false,
             })
             .unwrap();
+        let mesh = node.mesh().unwrap();
         let mut primitives = Vec::new();
         for primitive in mesh.primitives() {
             let reader = primitive.reader(|buffer| Some(&gltf_buffers[buffer.index()]));

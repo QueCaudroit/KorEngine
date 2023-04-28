@@ -70,7 +70,7 @@ impl GameLoop {
     }
 }
 pub trait Loader {
-    fn load(&mut self, asset: &str, mesh: &str, base_scale: f32) -> usize;
+    fn load(&mut self, asset: &str, node: &str, base_scale: f32) -> usize;
 }
 
 pub trait Drawer {
