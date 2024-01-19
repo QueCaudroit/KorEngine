@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use vulkano::{
     command_buffer::allocator::StandardCommandBufferAllocator,
-    descriptor_set::allocator::StandardDescriptorSetAllocator, device::Device,
+    descriptor_set::allocator::{
+        StandardDescriptorSetAllocator, StandardDescriptorSetAllocatorCreateInfo,
+    },
+    device::Device,
     memory::allocator::StandardMemoryAllocator,
 };
 
@@ -17,7 +20,12 @@ impl AllocatorCollection {
         AllocatorCollection {
             memory: Arc::new(StandardMemoryAllocator::new_default(device.clone())),
             command_buffer: StandardCommandBufferAllocator::new(device.clone(), Default::default()),
-            descriptor_set: StandardDescriptorSetAllocator::new(device),
+            descriptor_set: StandardDescriptorSetAllocator::new(
+                device,
+                StandardDescriptorSetAllocatorCreateInfo {
+                    ..Default::default()
+                },
+            ),
         }
     }
 }

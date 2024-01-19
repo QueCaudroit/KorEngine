@@ -3,11 +3,11 @@ use std::{f32::consts::TAU, time::Instant};
 use winit::{event::VirtualKeyCode, event_loop::EventLoop, window::Icon, window::WindowBuilder};
 
 use kor_engine::{
-    geometry::Transform, input::Input, run, DisplayRequest, Drawer, GameScene, GameSceneState,
-    Loader,
+    geometry::Transform, graphics::load_gltf::Asset, input::Input, run, DisplayRequest, Drawer,
+    GameScene, GameSceneState, Loader,
 };
 
-const SIZE: usize = 10;
+const SIZE: usize = 20;
 const ROTATION_SPEED: f32 = 0.5;
 const TRANSLATION_SPEED: f32 = 5.0;
 const FRAME_TIME: f32 = 1.0 / 60.0;
@@ -17,8 +17,8 @@ struct Scene {
     start_time: Instant,
     angle: f32,
     camera: Transform,
-    fox_id: Option<usize>,
-    monkey_id: Option<usize>,
+    fox: Option<Asset>,
+    monkey: Option<Asset>,
 }
 
 impl Scene {
@@ -31,16 +31,16 @@ impl Scene {
                 [1.0, 2.0, -20.0],
                 [SIZE as f32 * 1.7, 2.0, SIZE as f32 * 1.7],
             ),
-            fox_id: None,
-            monkey_id: None,
+            fox: None,
+            monkey: None,
         }
     }
 }
 
 impl GameScene for Scene {
     fn load(&mut self, loader: &mut dyn Loader) {
-        self.fox_id = Some(loader.load("./Fox.glb", "fox", 0.02));
-        self.monkey_id = Some(loader.load("./monkey.glb", "Suzanne", 1.0));
+        self.fox = Some(loader.load("./Fox.glb", "fox"));
+        self.monkey = Some(loader.load("./monkey.glb", "Suzanne"));
     }
 
     fn update(&mut self, input: &Input) -> GameSceneState {
@@ -76,23 +76,24 @@ impl GameScene for Scene {
                 for z in 0..SIZE {
                     foxes.push(
                         Transform::new()
-                            .rotate_y_world(self.angle)
-                            .translate_world([3.5 * x as f32, 3.5 * y as f32, 3.5 * z as f32]),
+                            .translate([3.5 * x as f32, 3.5 * y as f32, 3.5 * z as f32])
+                            .rotate_y(self.angle)
+                            .scale([0.02; 3]),
                     )
                 }
             }
         }
-        match (self.fox_id, self.monkey_id) {
+        match (&self.fox, &self.monkey) {
             (Some(fox), Some(monkey)) => {
                 drawer.draw(
                     self.camera,
                     &[
-                        DisplayRequest::InWorldSpace(fox, &foxes),
-                        DisplayRequest::InWorldSpace(
+                        DisplayRequest::Still(fox, &foxes),
+                        DisplayRequest::Still(
                             monkey,
                             &[Transform::new()
-                                .rotate_y_world(self.angle)
-                                .translate_world([-3.5, 0.0, 0.0])],
+                                .translate([-3.5, 0.0, 0.0])
+                                .rotate_y(self.angle)],
                         ),
                     ],
                 );

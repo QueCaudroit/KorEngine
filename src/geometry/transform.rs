@@ -1,3 +1,5 @@
+use super::{Quaternion, Vec3};
+
 #[derive(Clone, Copy)]
 pub struct Transform {
     pub rotation_scale: [[f32; 3]; 3],
@@ -30,6 +32,39 @@ impl Transform {
             .rotate_x_world(angle_x)
             .rotate_y_world(angle_y)
             .translate_world([from[0], from[1], from[2]])
+    }
+
+    pub fn from_trs(t: Vec3, r: Quaternion, s: Vec3) -> Self {
+        let ww = r.w * r.w;
+        let xx = r.x * r.x;
+        let yy = r.y * r.y;
+        let zz = r.z * r.z;
+        let wx = r.w * r.x;
+        let wy = r.w * r.y;
+        let wz = r.w * r.z;
+        let xy = r.x * r.y;
+        let xz = r.x * r.z;
+        let yz = r.y * r.z;
+        Self {
+            translation: [t.x, t.y, t.z],
+            rotation_scale: [
+                [
+                    s.x * (ww + xx - yy - zz),
+                    s.y * 2.0 * (wz + xy),
+                    s.z * 2.0 * (xz - wy),
+                ],
+                [
+                    s.x * 2.0 * (xy - wz),
+                    s.y * (ww - xx + yy - zz),
+                    s.z * 2.0 * (wx + yz),
+                ],
+                [
+                    s.x * 2.0 * (wy + xz),
+                    s.y * 2.0 * (yz - wx),
+                    s.z * (ww - xx - yy + zz),
+                ],
+            ],
+        }
     }
 
     pub fn translate(&self, offset: [f32; 3]) -> Self {
@@ -327,6 +362,17 @@ impl Transform {
                 1.0,
             ],
         ]
+    }
+
+    pub fn from_homogeneous_transposed(m: [[f32; 4]; 4]) -> Self {
+        Self {
+            translation: [m[0][3], m[1][3], m[2][3]],
+            rotation_scale: [
+                [m[0][0], m[1][0], m[2][0]],
+                [m[0][1], m[1][1], m[2][1]],
+                [m[0][2], m[1][2], m[2][2]],
+            ],
+        }
     }
 
     pub fn compose(&self, other: &Self) -> Self {

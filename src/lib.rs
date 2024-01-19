@@ -1,5 +1,7 @@
+use graphics::load_gltf::Asset;
 use input::Input;
 use std::{sync::Arc, time::Instant};
+use vulkano::{instance::InstanceExtensions, swapchain::Surface};
 use winit::{
     event::{DeviceEvent, Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
@@ -13,7 +15,7 @@ pub mod graphics;
 pub mod input;
 
 pub enum DisplayRequest<'a> {
-    InWorldSpace(usize, &'a [Transform]),
+    Still(&'a Asset, &'a [Transform]),
 }
 
 pub enum GameSceneState {
@@ -35,9 +37,13 @@ struct GameLoop {
     pub input: Input,
 }
 impl GameLoop {
-    fn new(gamescene: Box<dyn GameScene>, window: Arc<Window>) -> Self {
+    fn new(
+        gamescene: Box<dyn GameScene>,
+        window: Arc<Window>,
+        required_extensions: InstanceExtensions,
+    ) -> Self {
         Self {
-            engine: Engine::new(window),
+            engine: Engine::new(window, required_extensions),
             gamescene,
             frame_count: 0,
             start_time: Instant::now(),
@@ -70,7 +76,7 @@ impl GameLoop {
     }
 }
 pub trait Loader {
-    fn load(&mut self, asset: &str, node: &str, base_scale: f32) -> usize;
+    fn load(&mut self, asset: &str, node: &str) -> Asset;
 }
 
 pub trait Drawer {
@@ -79,7 +85,8 @@ pub trait Drawer {
 
 pub fn run(event_loop: EventLoop<()>, window: Window, gamescene: Box<dyn GameScene>) {
     let window = Arc::new(window);
-    let mut gameloop = GameLoop::new(gamescene, window.clone());
+    let required_extensions = Surface::required_extensions(&event_loop);
+    let mut gameloop = GameLoop::new(gamescene, window.clone(), required_extensions);
     gameloop.gamescene.load(&mut gameloop.engine);
     let mut recreate_swapchain = false;
     window.set_visible(true);

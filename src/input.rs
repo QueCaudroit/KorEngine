@@ -29,7 +29,7 @@ impl Input {
                 state,
                 ..
             }) => {
-                let mut key_state = &mut self.keyboard.keys[key as usize];
+                let key_state = &mut self.keyboard.keys[key as usize];
                 match state {
                     ElementState::Pressed => {
                         key_state.pressed = true;

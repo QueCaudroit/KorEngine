@@ -6,7 +6,7 @@ use vulkano::{
     },
     command_buffer::{
         AutoCommandBufferBuilder, CommandBufferUsage, PrimaryAutoCommandBuffer,
-        RenderPassBeginInfo, SubpassContents,
+        RenderPassBeginInfo, SubpassBeginInfo, SubpassContents,
     },
     descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
     device::{
@@ -14,27 +14,29 @@ use vulkano::{
         Device, DeviceCreateInfo, DeviceExtensions, Features, Queue, QueueCreateInfo, QueueFlags,
     },
     format::Format,
-    image::{view::ImageView, AttachmentImage, ImageAccess, ImageUsage, SwapchainImage},
-    instance::{Instance, InstanceCreateInfo},
-    memory::allocator::{AllocationCreateInfo, MemoryAllocator, MemoryUsage},
+    image::{
+        sampler::{Sampler, SamplerCreateInfo},
+        view::ImageView,
+        Image, ImageCreateInfo, ImageType, ImageUsage,
+    },
+    instance::{Instance, InstanceCreateFlags, InstanceCreateInfo, InstanceExtensions},
+    memory::allocator::{AllocationCreateInfo, MemoryAllocator, MemoryTypeFilter},
     pipeline::{graphics::vertex_input::Vertex, Pipeline, PipelineBindPoint},
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass},
-    sampler::{Sampler, SamplerCreateInfo},
     swapchain::{
-        acquire_next_image, AcquireError, PresentMode, Surface, SurfaceCapabilities, Swapchain,
-        SwapchainCreateInfo, SwapchainCreationError, SwapchainPresentInfo,
+        acquire_next_image, PresentMode, Surface, SurfaceCapabilities, Swapchain,
+        SwapchainCreateInfo, SwapchainPresentInfo,
     },
-    sync::{self, FlushError, GpuFuture},
-    VulkanLibrary,
+    sync::{self, GpuFuture},
+    Validated, VulkanError, VulkanLibrary,
 };
-use vulkano_win::create_surface_from_winit;
 use winit::window::Window;
 
 use crate::{
     geometry::Transform,
     graphics::{
         allocators::AllocatorCollection,
-        load_gltf::Primitive,
+        load_gltf::{AnimatedPrimitive, Asset, StillPrimitive},
         pipeline::PipelineCollection,
         shaders::{basic_vertex_shader, textured_vertex_shader},
     },
@@ -76,6 +78,20 @@ pub struct Model {
     pub model: [[f32; 4]; 4],
 }
 
+#[derive(BufferContents, Vertex)]
+#[repr(C)]
+pub struct Weight {
+    #[format(R32G32B32A32_SFLOAT)]
+    pub weights: [f32; 4],
+}
+
+#[derive(BufferContents, Vertex)]
+#[repr(C)]
+pub struct Joint {
+    #[format(R32G32B32A32_UINT)]
+    pub joints: [u32; 4],
+}
+
 pub struct Engine {
     pub surface: Arc<Surface>,
     pub swapchain: Arc<Swapchain>,
@@ -86,18 +102,18 @@ pub struct Engine {
     pub render_pass: Arc<RenderPass>,
     pub pipelines: PipelineCollection,
     pub allocators: AllocatorCollection,
-    pub images: Vec<Arc<SwapchainImage>>,
+    pub images: Vec<Arc<Image>>,
     pub framebuffers: Vec<Arc<Framebuffer>>,
     pub previous_frame_end: Box<dyn GpuFuture>,
-    pub assets: Vec<Vec<Primitive>>,
     pub uniform_buffer: SubbufferAllocator,
     pub sampler: Arc<Sampler>,
     pub recreate_swapchain: bool,
 }
 
 impl Engine {
-    pub fn new(window: Arc<Window>) -> Self {
-        let (surface, caps, image_format, device, queue, render_pass) = engine_init(window.clone());
+    pub fn new(window: Arc<Window>, required_extensions: InstanceExtensions) -> Self {
+        let (surface, caps, image_format, device, queue, render_pass) =
+            engine_init(window.clone(), required_extensions);
         let allocators = AllocatorCollection::new(device.clone());
         let composite_alpha = caps.supported_composite_alpha.into_iter().next().unwrap();
         let (swapchain, images) = Swapchain::new(
@@ -105,7 +121,7 @@ impl Engine {
             surface.clone(),
             SwapchainCreateInfo {
                 min_image_count: caps.min_image_count + 1,
-                image_format: Some(image_format),
+                image_format,
                 image_extent: window.inner_size().into(),
                 image_usage: ImageUsage::COLOR_ATTACHMENT,
                 composite_alpha,
@@ -115,18 +131,18 @@ impl Engine {
         )
         .unwrap();
 
-        let dimensions = images[0].dimensions().width_height();
-        let pipelines = PipelineCollection::init(device.clone(), render_pass.clone(), &dimensions);
-        let framebuffers = get_framebuffers(
-            &allocators.memory,
-            &images,
-            render_pass.clone(),
-            &dimensions,
-        );
+        let dimensions = images[0].extent();
+        let pipelines =
+            PipelineCollection::init(device.clone(), render_pass.clone(), &dimensions[0..2]);
+        let framebuffers =
+            get_framebuffers(allocators.memory.clone(), &images, render_pass.clone());
         let uniform_buffer = SubbufferAllocator::new(
             allocators.memory.clone(),
             SubbufferAllocatorCreateInfo {
                 buffer_usage: BufferUsage::UNIFORM_BUFFER,
+
+                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
                 ..Default::default()
             },
         );
@@ -147,7 +163,6 @@ impl Engine {
             images,
             framebuffers,
             previous_frame_end,
-            assets: Vec::new(),
             uniform_buffer,
             sampler,
             recreate_swapchain: false,
@@ -160,7 +175,6 @@ impl Engine {
             ..self.swapchain.create_info()
         }) {
             Ok(r) => r,
-            Err(SwapchainCreationError::ImageExtentNotSupported { .. }) => return,
             Err(e) => panic!("Failed to recreate swapchain: {:?}", e),
         };
         self.swapchain = new_swapchain;
@@ -168,10 +182,9 @@ impl Engine {
         self.pipelines
             .recreate(self.device.clone(), self.render_pass.clone(), &dimensions);
         self.framebuffers = get_framebuffers(
-            &self.allocators.memory,
+            self.allocators.memory.clone(),
             &self.images,
             self.render_pass.clone(),
-            &dimensions,
         );
     }
 
@@ -192,7 +205,10 @@ impl Engine {
                     clear_values: vec![Some([0.0, 0.0, 0.0, 1.0].into()), Some(1f32.into())],
                     ..RenderPassBeginInfo::framebuffer(framebuffer)
                 },
-                SubpassContents::Inline,
+                SubpassBeginInfo {
+                    contents: SubpassContents::Inline,
+                    ..Default::default()
+                },
             )
             .unwrap();
         builder
@@ -201,14 +217,14 @@ impl Engine {
     fn end_command_buffer(
         &self,
         mut builder: AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
-    ) -> PrimaryAutoCommandBuffer {
-        builder.end_render_pass().unwrap();
+    ) -> Arc<PrimaryAutoCommandBuffer> {
+        builder.end_render_pass(Default::default()).unwrap();
         builder.build().unwrap()
     }
 
-    fn add_primitive_to_command_buffer(
+    fn add_still_primitive_to_command_buffer(
         &self,
-        primitive: &Primitive,
+        primitive: &StillPrimitive,
         view_proj: [[f32; 4]; 4],
         item_pos: Subbuffer<[[[f32; 4]; 4]]>,
         camera_position: Subbuffer<[[f32; 3]]>,
@@ -216,27 +232,30 @@ impl Engine {
     ) {
         let instance_count = camera_position.len();
         match primitive {
-            Primitive::Basic(position_buffer, normal_buffer, color) => {
+            StillPrimitive::Basic(position_buffer, normal_buffer, color) => {
                 let uniform_subbuffer = self.uniform_buffer.allocate_sized().unwrap();
                 *uniform_subbuffer.write().unwrap() = basic_vertex_shader::UniformBufferObject {
                     color: *color,
                     view_proj,
                 };
-                let layout = self.pipelines.basic.layout().set_layouts().get(0).unwrap();
+                let layout = self.pipelines.basic.layout().set_layouts().first().unwrap();
                 let descriptor_set = PersistentDescriptorSet::new(
                     &self.allocators.descriptor_set,
                     layout.clone(),
                     [WriteDescriptorSet::buffer(0, uniform_subbuffer)],
+                    [],
                 )
                 .unwrap();
                 builder
                     .bind_pipeline_graphics(self.pipelines.basic.clone())
+                    .unwrap()
                     .bind_descriptor_sets(
                         PipelineBindPoint::Graphics,
                         self.pipelines.basic.layout().clone(),
                         0,
                         descriptor_set,
                     )
+                    .unwrap()
                     .bind_vertex_buffers(
                         0,
                         (
@@ -246,10 +265,11 @@ impl Engine {
                             item_pos,
                         ),
                     )
+                    .unwrap()
                     .draw(position_buffer.len() as u32, instance_count as u32, 0, 0)
                     .unwrap();
             }
-            Primitive::Textured(position_buffer, normal_buffer, texture_coord, texture) => {
+            StillPrimitive::Textured(position_buffer, normal_buffer, texture_coord, texture) => {
                 let uniform_subbuffer = self.uniform_buffer.allocate_sized().unwrap();
                 *uniform_subbuffer.write().unwrap() =
                     textured_vertex_shader::UniformBufferObject { view_proj };
@@ -258,7 +278,7 @@ impl Engine {
                     .textured
                     .layout()
                     .set_layouts()
-                    .get(0)
+                    .first()
                     .unwrap();
                 let descriptor_set = PersistentDescriptorSet::new(
                     &self.allocators.descriptor_set,
@@ -271,16 +291,19 @@ impl Engine {
                             self.sampler.clone(),
                         ),
                     ],
+                    [],
                 )
                 .unwrap();
                 builder
                     .bind_pipeline_graphics(self.pipelines.textured.clone())
+                    .unwrap()
                     .bind_descriptor_sets(
                         PipelineBindPoint::Graphics,
                         self.pipelines.textured.layout().clone(),
                         0,
                         descriptor_set,
                     )
+                    .unwrap()
                     .bind_vertex_buffers(
                         0,
                         (
@@ -291,9 +314,175 @@ impl Engine {
                             item_pos,
                         ),
                     )
+                    .unwrap()
                     .draw(position_buffer.len() as u32, instance_count as u32, 0, 0)
                     .unwrap();
             }
+        }
+    }
+
+    fn add_animated_primitive_to_command_buffer(
+        &self,
+        primitive: &AnimatedPrimitive,
+        view_proj: [[f32; 4]; 4],
+        item_pos: Subbuffer<[[[f32; 4]; 4]]>,
+        camera_position: Subbuffer<[[f32; 3]]>,
+        builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
+    ) {
+        let instance_count = camera_position.len();
+        match primitive {
+            AnimatedPrimitive::Basic(position_buffer, normal_buffer, color, _, _) => {
+                let uniform_subbuffer = self.uniform_buffer.allocate_sized().unwrap();
+                *uniform_subbuffer.write().unwrap() = basic_vertex_shader::UniformBufferObject {
+                    color: *color,
+                    view_proj,
+                };
+                let layout = self.pipelines.basic.layout().set_layouts().first().unwrap();
+                let descriptor_set = PersistentDescriptorSet::new(
+                    &self.allocators.descriptor_set,
+                    layout.clone(),
+                    [WriteDescriptorSet::buffer(0, uniform_subbuffer)],
+                    [],
+                )
+                .unwrap();
+                builder
+                    .bind_pipeline_graphics(self.pipelines.basic.clone())
+                    .unwrap()
+                    .bind_descriptor_sets(
+                        PipelineBindPoint::Graphics,
+                        self.pipelines.basic.layout().clone(),
+                        0,
+                        descriptor_set,
+                    )
+                    .unwrap()
+                    .bind_vertex_buffers(
+                        0,
+                        (
+                            position_buffer.clone(),
+                            normal_buffer.clone(),
+                            camera_position,
+                            item_pos,
+                        ),
+                    )
+                    .unwrap()
+                    .draw(position_buffer.len() as u32, instance_count as u32, 0, 0)
+                    .unwrap();
+            }
+            AnimatedPrimitive::Textured(
+                position_buffer,
+                normal_buffer,
+                texture_coord,
+                texture,
+                _,
+                _,
+            ) => {
+                let uniform_subbuffer = self.uniform_buffer.allocate_sized().unwrap();
+                *uniform_subbuffer.write().unwrap() =
+                    textured_vertex_shader::UniformBufferObject { view_proj };
+                let layout = self
+                    .pipelines
+                    .textured
+                    .layout()
+                    .set_layouts()
+                    .first()
+                    .unwrap();
+                let descriptor_set = PersistentDescriptorSet::new(
+                    &self.allocators.descriptor_set,
+                    layout.clone(),
+                    [
+                        WriteDescriptorSet::buffer(0, uniform_subbuffer),
+                        WriteDescriptorSet::image_view_sampler(
+                            1,
+                            texture.clone(),
+                            self.sampler.clone(),
+                        ),
+                    ],
+                    [],
+                )
+                .unwrap();
+                builder
+                    .bind_pipeline_graphics(self.pipelines.textured.clone())
+                    .unwrap()
+                    .bind_descriptor_sets(
+                        PipelineBindPoint::Graphics,
+                        self.pipelines.textured.layout().clone(),
+                        0,
+                        descriptor_set,
+                    )
+                    .unwrap()
+                    .bind_vertex_buffers(
+                        0,
+                        (
+                            position_buffer.clone(),
+                            normal_buffer.clone(),
+                            texture_coord.clone(),
+                            camera_position,
+                            item_pos,
+                        ),
+                    )
+                    .unwrap()
+                    .draw(position_buffer.len() as u32, instance_count as u32, 0, 0)
+                    .unwrap();
+            } /*TODO
+              Primitive::TexturedSkinned(
+                  position_buffer,
+                  normal_buffer,
+                  texture_coord,
+                  texture,
+                  weights,
+                  joints,
+              ) => {
+                  let uniform_subbuffer = self.uniform_buffer.allocate_sized().unwrap();
+                  *uniform_subbuffer.write().unwrap() =
+                      textured_vertex_shader::UniformBufferObject { view_proj };
+                  let layout = self
+                      .pipelines
+                      .textured
+                      .layout()
+                      .set_layouts()
+                      .first()
+                      .unwrap();
+                  let descriptor_set = PersistentDescriptorSet::new(
+                      &self.allocators.descriptor_set,
+                      layout.clone(),
+                      [
+                          WriteDescriptorSet::buffer(0, uniform_subbuffer),
+                          WriteDescriptorSet::image_view_sampler(
+                              1,
+                              texture.clone(),
+                              self.sampler.clone(),
+                          ),
+                      ],
+                      [],
+                  )
+                  .unwrap();
+                  builder
+                      .bind_pipeline_graphics(self.pipelines.textured.clone())
+                      .unwrap()
+                      .bind_descriptor_sets(
+                          PipelineBindPoint::Graphics,
+                          self.pipelines.textured.layout().clone(),
+                          0,
+                          descriptor_set,
+                      )
+                      .unwrap()
+                      .bind_vertex_buffers(
+                          0,
+                          (
+                              position_buffer.clone(),
+                              normal_buffer.clone(),
+                              texture_coord.clone(),
+                              camera_position,
+                              item_pos,
+                              weights.clone(),
+                              joints.clone(),
+                          ),
+                      )
+                      .unwrap()
+                      .draw(position_buffer.len() as u32, instance_count as u32, 0, 0)
+                      .unwrap();
+              }
+              */
         }
     }
 }
@@ -303,7 +492,7 @@ impl Drawer for Engine {
         let (image_i, suboptimal, acquire_future) =
             match acquire_next_image(self.swapchain.clone(), None) {
                 Ok(r) => (r.0 as usize, r.1, r.2),
-                Err(AcquireError::OutOfDate) => {
+                Err(Validated::Error(VulkanError::OutOfDate)) => {
                     self.recreate_swapchain = true;
                     return;
                 }
@@ -321,15 +510,16 @@ impl Drawer for Engine {
         let mut builder = self.init_command_buffer(image_i);
         for displayed_item in display_request {
             match *displayed_item {
-                DisplayRequest::InWorldSpace(item_name, item_pos) => {
+                DisplayRequest::Still(asset, item_pos) => {
                     let camera_positions = Buffer::from_iter(
-                        &self.allocators.memory,
+                        self.allocators.memory.clone(),
                         BufferCreateInfo {
                             usage: BufferUsage::VERTEX_BUFFER,
                             ..Default::default()
                         },
                         AllocationCreateInfo {
-                            usage: MemoryUsage::Upload,
+                            memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
                             ..Default::default()
                         },
                         item_pos
@@ -338,26 +528,43 @@ impl Drawer for Engine {
                     )
                     .unwrap();
                     let item_pos = Buffer::from_iter(
-                        &self.allocators.memory,
+                        self.allocators.memory.clone(),
                         BufferCreateInfo {
                             usage: BufferUsage::VERTEX_BUFFER,
                             ..Default::default()
                         },
                         AllocationCreateInfo {
-                            usage: MemoryUsage::Upload,
+                            memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
                             ..Default::default()
                         },
                         item_pos.iter().map(|pos| pos.to_homogeneous()),
                     )
                     .unwrap();
-                    for primive in self.assets.get(item_name).unwrap() {
-                        self.add_primitive_to_command_buffer(
-                            primive,
-                            view_proj,
-                            item_pos.clone(),
-                            camera_positions.clone(),
-                            &mut builder,
-                        );
+                    match asset {
+                        Asset::Still(still_primitives) => {
+                            for primive in still_primitives.iter() {
+                                self.add_still_primitive_to_command_buffer(
+                                    primive,
+                                    view_proj,
+                                    item_pos.clone(),
+                                    camera_positions.clone(),
+                                    &mut builder,
+                                );
+                            }
+                        }
+                        Asset::Animated(animated_primitives, _) => {
+                            for primive in animated_primitives.iter() {
+                                // TODO
+                                self.add_animated_primitive_to_command_buffer(
+                                    primive,
+                                    view_proj,
+                                    item_pos.clone(),
+                                    camera_positions.clone(),
+                                    &mut builder,
+                                );
+                            }
+                        }
                     }
                 }
             }
@@ -366,7 +573,6 @@ impl Drawer for Engine {
         self.previous_frame_end.cleanup_finished();
         let mut temp_future = sync::now(self.device.clone()).boxed();
         mem::swap(&mut temp_future, &mut self.previous_frame_end);
-
         let future = temp_future
             .join(acquire_future)
             .then_execute(self.queue.clone(), command_buffer)
@@ -377,7 +583,7 @@ impl Drawer for Engine {
             )
             .then_signal_fence_and_flush();
 
-        if matches!(future, Err(FlushError::OutOfDate)) {
+        if matches!(future, Err(Validated::Error(VulkanError::OutOfDate))) {
             self.recreate_swapchain = true;
             return;
         }
@@ -387,6 +593,7 @@ impl Drawer for Engine {
 
 fn engine_init(
     window: Arc<Window>,
+    required_extensions: InstanceExtensions,
 ) -> (
     Arc<Surface>,
     SurfaceCapabilities,
@@ -396,12 +603,11 @@ fn engine_init(
     Arc<RenderPass>,
 ) {
     let library = VulkanLibrary::new().unwrap();
-    let required_extensions = vulkano_win::required_extensions(&library);
     let instance = Instance::new(
         library,
         InstanceCreateInfo {
+            flags: InstanceCreateFlags::ENUMERATE_PORTABILITY,
             enabled_extensions: required_extensions,
-            enumerate_portability: false,
             ..Default::default()
         },
     )
@@ -410,7 +616,7 @@ fn engine_init(
         khr_swapchain: true,
         ..DeviceExtensions::empty()
     };
-    let surface = create_surface_from_winit(window, instance.clone()).unwrap();
+    let surface = Surface::from_window(instance.clone(), window).unwrap();
     let (physical_device, queue_family_id) =
         select_physical_device(&instance, surface.clone(), &device_extensions);
     let caps = physical_device
@@ -477,34 +683,44 @@ fn get_render_pass(device: Arc<Device>, image_format: Format) -> Arc<RenderPass>
         device,
         attachments: {
             color: {
-                load: Clear,
-                store: Store,
                 format: image_format,
                 samples: 1,
+                load_op: Clear,
+                store_op: Store,
             },
-            depth: {
-                load: Clear,
-                store: DontCare,
+            depth_stencil: {
                 format: Format::D16_UNORM,
                 samples: 1,
+                load_op: Clear,
+                store_op: DontCare,
             }
         },
         pass: {
             color: [color],
-            depth_stencil: {depth}
+            depth_stencil: {depth_stencil}
         }
     )
     .unwrap()
 }
 
 fn get_framebuffers(
-    memory_allocator: &impl MemoryAllocator,
-    images: &[Arc<SwapchainImage>],
+    memory_allocator: Arc<dyn MemoryAllocator>,
+    images: &[Arc<Image>],
     render_pass: Arc<RenderPass>,
-    dimensions: &[u32; 2],
 ) -> Vec<Arc<Framebuffer>> {
     let depth_buffer = ImageView::new_default(
-        AttachmentImage::transient(memory_allocator, *dimensions, Format::D16_UNORM).unwrap(),
+        Image::new(
+            memory_allocator,
+            ImageCreateInfo {
+                image_type: ImageType::Dim2d,
+                format: Format::D16_UNORM,
+                extent: images[0].extent(),
+                usage: ImageUsage::DEPTH_STENCIL_ATTACHMENT | ImageUsage::TRANSIENT_ATTACHMENT,
+                ..Default::default()
+            },
+            AllocationCreateInfo::default(),
+        )
+        .unwrap(),
     )
     .unwrap();
     images
