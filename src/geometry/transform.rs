@@ -50,17 +50,17 @@ impl Transform {
             rotation_scale: [
                 [
                     s.x * (ww + xx - yy - zz),
-                    s.y * 2.0 * (wz + xy),
-                    s.z * 2.0 * (xz - wy),
+                    s.x * 2.0 * (wz + xy),
+                    s.x * 2.0 * (xz - wy),
                 ],
                 [
-                    s.x * 2.0 * (xy - wz),
+                    s.y * 2.0 * (xy - wz),
                     s.y * (ww - xx + yy - zz),
-                    s.z * 2.0 * (wx + yz),
+                    s.y * 2.0 * (wx + yz),
                 ],
                 [
-                    s.x * 2.0 * (wy + xz),
-                    s.y * 2.0 * (yz - wx),
+                    s.z * 2.0 * (wy + xz),
+                    s.z * 2.0 * (yz - wx),
                     s.z * (ww - xx - yy + zz),
                 ],
             ],
@@ -364,13 +364,13 @@ impl Transform {
         ]
     }
 
-    pub fn from_homogeneous_transposed(m: [[f32; 4]; 4]) -> Self {
+    pub fn from_homogeneous(m: [[f32; 4]; 4]) -> Self {
         Self {
-            translation: [m[0][3], m[1][3], m[2][3]],
+            translation: [m[3][0], m[3][1], m[3][2]],
             rotation_scale: [
-                [m[0][0], m[1][0], m[2][0]],
-                [m[0][1], m[1][1], m[2][1]],
-                [m[0][2], m[1][2], m[2][2]],
+                [m[0][0], m[0][1], m[0][2]],
+                [m[1][0], m[1][1], m[1][2]],
+                [m[2][0], m[2][1], m[2][2]],
             ],
         }
     }
@@ -380,51 +380,51 @@ impl Transform {
             rotation_scale: [
                 [
                     self.rotation_scale[0][0] * other.rotation_scale[0][0]
-                        + self.rotation_scale[0][1] * other.rotation_scale[1][0]
-                        + self.rotation_scale[0][2] * other.rotation_scale[2][0],
-                    self.rotation_scale[0][0] * other.rotation_scale[0][1]
-                        + self.rotation_scale[0][1] * other.rotation_scale[1][1]
-                        + self.rotation_scale[0][2] * other.rotation_scale[2][1],
-                    self.rotation_scale[0][0] * other.rotation_scale[0][2]
-                        + self.rotation_scale[0][1] * other.rotation_scale[1][2]
-                        + self.rotation_scale[0][2] * other.rotation_scale[2][2],
+                        + self.rotation_scale[1][0] * other.rotation_scale[0][1]
+                        + self.rotation_scale[2][0] * other.rotation_scale[0][2],
+                    self.rotation_scale[0][1] * other.rotation_scale[0][0]
+                        + self.rotation_scale[1][1] * other.rotation_scale[0][1]
+                        + self.rotation_scale[2][1] * other.rotation_scale[0][2],
+                    self.rotation_scale[0][2] * other.rotation_scale[0][0]
+                        + self.rotation_scale[1][2] * other.rotation_scale[0][1]
+                        + self.rotation_scale[2][2] * other.rotation_scale[0][2],
                 ],
                 [
-                    self.rotation_scale[1][0] * other.rotation_scale[0][0]
-                        + self.rotation_scale[1][1] * other.rotation_scale[1][0]
-                        + self.rotation_scale[1][2] * other.rotation_scale[2][0],
-                    self.rotation_scale[1][0] * other.rotation_scale[0][1]
+                    self.rotation_scale[0][0] * other.rotation_scale[1][0]
+                        + self.rotation_scale[1][0] * other.rotation_scale[1][1]
+                        + self.rotation_scale[2][0] * other.rotation_scale[1][2],
+                    self.rotation_scale[0][1] * other.rotation_scale[1][0]
                         + self.rotation_scale[1][1] * other.rotation_scale[1][1]
-                        + self.rotation_scale[1][2] * other.rotation_scale[2][1],
-                    self.rotation_scale[1][0] * other.rotation_scale[0][2]
-                        + self.rotation_scale[1][1] * other.rotation_scale[1][2]
-                        + self.rotation_scale[1][2] * other.rotation_scale[2][2],
+                        + self.rotation_scale[2][1] * other.rotation_scale[1][2],
+                    self.rotation_scale[0][2] * other.rotation_scale[1][0]
+                        + self.rotation_scale[1][2] * other.rotation_scale[1][1]
+                        + self.rotation_scale[2][2] * other.rotation_scale[1][2],
                 ],
                 [
-                    self.rotation_scale[2][0] * other.rotation_scale[0][0]
-                        + self.rotation_scale[2][1] * other.rotation_scale[1][0]
-                        + self.rotation_scale[2][2] * other.rotation_scale[2][0],
-                    self.rotation_scale[2][0] * other.rotation_scale[0][1]
-                        + self.rotation_scale[2][1] * other.rotation_scale[1][1]
-                        + self.rotation_scale[2][2] * other.rotation_scale[2][1],
-                    self.rotation_scale[2][0] * other.rotation_scale[0][2]
-                        + self.rotation_scale[2][1] * other.rotation_scale[1][2]
+                    self.rotation_scale[0][0] * other.rotation_scale[2][0]
+                        + self.rotation_scale[1][0] * other.rotation_scale[2][1]
+                        + self.rotation_scale[2][0] * other.rotation_scale[2][2],
+                    self.rotation_scale[0][1] * other.rotation_scale[2][0]
+                        + self.rotation_scale[1][1] * other.rotation_scale[2][1]
+                        + self.rotation_scale[2][1] * other.rotation_scale[2][2],
+                    self.rotation_scale[0][2] * other.rotation_scale[2][0]
+                        + self.rotation_scale[1][2] * other.rotation_scale[2][1]
                         + self.rotation_scale[2][2] * other.rotation_scale[2][2],
                 ],
             ],
             translation: [
-                self.translation[0] * other.rotation_scale[0][0]
-                    + self.translation[1] * other.rotation_scale[1][0]
-                    + self.translation[2] * other.rotation_scale[2][0]
-                    + other.translation[0],
-                self.translation[0] * other.rotation_scale[0][1]
-                    + self.translation[1] * other.rotation_scale[1][1]
-                    + self.translation[2] * other.rotation_scale[2][1]
-                    + other.translation[1],
-                self.translation[0] * other.rotation_scale[0][2]
-                    + self.translation[1] * other.rotation_scale[1][2]
-                    + self.translation[2] * other.rotation_scale[2][2]
-                    + other.translation[2],
+                other.translation[0] * self.rotation_scale[0][0]
+                    + other.translation[1] * self.rotation_scale[1][0]
+                    + other.translation[2] * self.rotation_scale[2][0]
+                    + self.translation[0],
+                other.translation[0] * self.rotation_scale[0][1]
+                    + other.translation[1] * self.rotation_scale[1][1]
+                    + other.translation[2] * self.rotation_scale[2][1]
+                    + self.translation[1],
+                other.translation[0] * self.rotation_scale[0][2]
+                    + other.translation[1] * self.rotation_scale[1][2]
+                    + other.translation[2] * self.rotation_scale[2][2]
+                    + self.translation[2],
             ],
         }
     }

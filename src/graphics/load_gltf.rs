@@ -78,9 +78,8 @@ impl Loader for Engine {
                 let inverse_matrices: Option<Vec<_>> = skin
                     .reader(|buffer| Some(&gltf_buffers[buffer.index()]))
                     .read_inverse_bind_matrices()
-                    .map(|i| i.map(Transform::from_homogeneous_transposed).collect());
-                let (animator, mapping) =
-                    Animator::new(&all_nodes, node.index(), joints, inverse_matrices);
+                    .map(|i| i.map(Transform::from_homogeneous).collect());
+                let (animator, mapping) = Animator::new(&all_nodes, joints, inverse_matrices);
                 Asset::Animated(
                     self.load_animated_primitive(mesh, gltf_buffers, gltf_images, mapping),
                     animator,

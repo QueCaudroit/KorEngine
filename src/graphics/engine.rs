@@ -38,7 +38,10 @@ use crate::{
         allocators::AllocatorCollection,
         load_gltf::{AnimatedPrimitive, Asset, StillPrimitive},
         pipeline::PipelineCollection,
-        shaders::{basic_vertex_shader, textured_vertex_shader},
+        shaders::{
+            basic_animated_vertex_shader, basic_vertex_shader, textured_animated_vertex_shader,
+            textured_vertex_shader,
+        },
     },
     DisplayRequest, Drawer,
 };
@@ -326,12 +329,13 @@ impl Engine {
         primitive: &AnimatedPrimitive,
         view_proj: [[f32; 4]; 4],
         item_pos: Subbuffer<[[[f32; 4]; 4]]>,
+        pose_option: Option<&[Transform]>,
         camera_position: Subbuffer<[[f32; 3]]>,
         builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
     ) {
         let instance_count = camera_position.len();
-        match primitive {
-            AnimatedPrimitive::Basic(position_buffer, normal_buffer, color, _, _) => {
+        match (primitive, pose_option) {
+            (AnimatedPrimitive::Basic(position_buffer, normal_buffer, color, _, _), None) => {
                 let uniform_subbuffer = self.uniform_buffer.allocate_sized().unwrap();
                 *uniform_subbuffer.write().unwrap() = basic_vertex_shader::UniformBufferObject {
                     color: *color,
@@ -368,13 +372,16 @@ impl Engine {
                     .draw(position_buffer.len() as u32, instance_count as u32, 0, 0)
                     .unwrap();
             }
-            AnimatedPrimitive::Textured(
-                position_buffer,
-                normal_buffer,
-                texture_coord,
-                texture,
-                _,
-                _,
+            (
+                AnimatedPrimitive::Textured(
+                    position_buffer,
+                    normal_buffer,
+                    texture_coord,
+                    texture,
+                    _,
+                    _,
+                ),
+                None,
             ) => {
                 let uniform_subbuffer = self.uniform_buffer.allocate_sized().unwrap();
                 *uniform_subbuffer.write().unwrap() =
@@ -423,66 +430,155 @@ impl Engine {
                     .unwrap()
                     .draw(position_buffer.len() as u32, instance_count as u32, 0, 0)
                     .unwrap();
-            } /*TODO
-              Primitive::TexturedSkinned(
-                  position_buffer,
-                  normal_buffer,
-                  texture_coord,
-                  texture,
-                  weights,
-                  joints,
-              ) => {
-                  let uniform_subbuffer = self.uniform_buffer.allocate_sized().unwrap();
-                  *uniform_subbuffer.write().unwrap() =
-                      textured_vertex_shader::UniformBufferObject { view_proj };
-                  let layout = self
-                      .pipelines
-                      .textured
-                      .layout()
-                      .set_layouts()
-                      .first()
-                      .unwrap();
-                  let descriptor_set = PersistentDescriptorSet::new(
-                      &self.allocators.descriptor_set,
-                      layout.clone(),
-                      [
-                          WriteDescriptorSet::buffer(0, uniform_subbuffer),
-                          WriteDescriptorSet::image_view_sampler(
-                              1,
-                              texture.clone(),
-                              self.sampler.clone(),
-                          ),
-                      ],
-                      [],
-                  )
-                  .unwrap();
-                  builder
-                      .bind_pipeline_graphics(self.pipelines.textured.clone())
-                      .unwrap()
-                      .bind_descriptor_sets(
-                          PipelineBindPoint::Graphics,
-                          self.pipelines.textured.layout().clone(),
-                          0,
-                          descriptor_set,
-                      )
-                      .unwrap()
-                      .bind_vertex_buffers(
-                          0,
-                          (
-                              position_buffer.clone(),
-                              normal_buffer.clone(),
-                              texture_coord.clone(),
-                              camera_position,
-                              item_pos,
-                              weights.clone(),
-                              joints.clone(),
-                          ),
-                      )
-                      .unwrap()
-                      .draw(position_buffer.len() as u32, instance_count as u32, 0, 0)
-                      .unwrap();
-              }
-              */
+            }
+            (
+                AnimatedPrimitive::Basic(position_buffer, normal_buffer, color, joints, weights),
+                Some(pose),
+            ) => {
+                let pose_buffer = Buffer::from_iter(
+                    self.allocators.memory.clone(),
+                    BufferCreateInfo {
+                        usage: BufferUsage::STORAGE_BUFFER,
+                        ..Default::default()
+                    },
+                    AllocationCreateInfo {
+                        memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                            | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                        ..Default::default()
+                    },
+                    pose.iter().map(|pose| pose.to_homogeneous()),
+                )
+                .unwrap();
+                let uniform_subbuffer = self.uniform_buffer.allocate_sized().unwrap();
+                *uniform_subbuffer.write().unwrap() =
+                    basic_animated_vertex_shader::UniformBufferObject {
+                        color: *color,
+                        view_proj,
+                        transform_length: (pose_buffer.len() / item_pos.len()) as u32,
+                    };
+                let layout = self
+                    .pipelines
+                    .basic_animated
+                    .layout()
+                    .set_layouts()
+                    .first()
+                    .unwrap();
+                let descriptor_set = PersistentDescriptorSet::new(
+                    &self.allocators.descriptor_set,
+                    layout.clone(),
+                    [
+                        WriteDescriptorSet::buffer(0, uniform_subbuffer),
+                        WriteDescriptorSet::buffer(2, pose_buffer),
+                    ],
+                    [],
+                )
+                .unwrap();
+                builder
+                    .bind_pipeline_graphics(self.pipelines.basic_animated.clone())
+                    .unwrap()
+                    .bind_descriptor_sets(
+                        PipelineBindPoint::Graphics,
+                        self.pipelines.basic_animated.layout().clone(),
+                        0,
+                        descriptor_set,
+                    )
+                    .unwrap()
+                    .bind_vertex_buffers(
+                        0,
+                        (
+                            position_buffer.clone(),
+                            normal_buffer.clone(),
+                            camera_position,
+                            item_pos,
+                            weights.clone(),
+                            joints.clone(),
+                        ),
+                    )
+                    .unwrap()
+                    .draw(position_buffer.len() as u32, instance_count as u32, 0, 0)
+                    .unwrap();
+            }
+
+            (
+                AnimatedPrimitive::Textured(
+                    position_buffer,
+                    normal_buffer,
+                    texture_coord,
+                    texture,
+                    joints,
+                    weights,
+                ),
+                Some(pose),
+            ) => {
+                let pose_buffer = Buffer::from_iter(
+                    self.allocators.memory.clone(),
+                    BufferCreateInfo {
+                        usage: BufferUsage::STORAGE_BUFFER,
+                        ..Default::default()
+                    },
+                    AllocationCreateInfo {
+                        memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                            | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                        ..Default::default()
+                    },
+                    pose.iter().map(|pose| pose.to_homogeneous()),
+                )
+                .unwrap();
+
+                let uniform_subbuffer = self.uniform_buffer.allocate_sized().unwrap();
+                *uniform_subbuffer.write().unwrap() =
+                    textured_animated_vertex_shader::UniformBufferObject {
+                        view_proj,
+                        transform_length: (pose_buffer.len() / item_pos.len()) as u32,
+                    };
+                let layout = self
+                    .pipelines
+                    .textured_animated
+                    .layout()
+                    .set_layouts()
+                    .first()
+                    .unwrap();
+                let descriptor_set = PersistentDescriptorSet::new(
+                    &self.allocators.descriptor_set,
+                    layout.clone(),
+                    [
+                        WriteDescriptorSet::buffer(0, uniform_subbuffer),
+                        WriteDescriptorSet::image_view_sampler(
+                            1,
+                            texture.clone(),
+                            self.sampler.clone(),
+                        ),
+                        WriteDescriptorSet::buffer(2, pose_buffer),
+                    ],
+                    [],
+                )
+                .unwrap();
+                builder
+                    .bind_pipeline_graphics(self.pipelines.textured_animated.clone())
+                    .unwrap()
+                    .bind_descriptor_sets(
+                        PipelineBindPoint::Graphics,
+                        self.pipelines.textured_animated.layout().clone(),
+                        0,
+                        descriptor_set,
+                    )
+                    .unwrap()
+                    .bind_vertex_buffers(
+                        0,
+                        (
+                            position_buffer.clone(),
+                            normal_buffer.clone(),
+                            texture_coord.clone(),
+                            camera_position,
+                            item_pos,
+                            weights.clone(),
+                            joints.clone(),
+                        ),
+                    )
+                    .unwrap()
+                    .draw(position_buffer.len() as u32, instance_count as u32, 0, 0)
+                    .unwrap();
+            }
         }
     }
 }
@@ -510,7 +606,7 @@ impl Drawer for Engine {
         let mut builder = self.init_command_buffer(image_i);
         for displayed_item in display_request {
             match *displayed_item {
-                DisplayRequest::Still(asset, item_pos) => {
+                DisplayRequest::In3D(asset, item_pos, pose_option) => {
                     let camera_positions = Buffer::from_iter(
                         self.allocators.memory.clone(),
                         BufferCreateInfo {
@@ -524,7 +620,7 @@ impl Drawer for Engine {
                         },
                         item_pos
                             .iter()
-                            .map(|pos| camera_transform.compose(&pos.reverse()).translation),
+                            .map(|pos| pos.reverse().compose(&camera_transform).translation),
                     )
                     .unwrap();
                     let item_pos = Buffer::from_iter(
@@ -555,11 +651,11 @@ impl Drawer for Engine {
                         }
                         Asset::Animated(animated_primitives, _) => {
                             for primive in animated_primitives.iter() {
-                                // TODO
                                 self.add_animated_primitive_to_command_buffer(
                                     primive,
                                     view_proj,
                                     item_pos.clone(),
+                                    pose_option,
                                     camera_positions.clone(),
                                     &mut builder,
                                 );

@@ -1,8 +1,8 @@
 #version 450
 
 layout(binding = 0) uniform UniformBufferObject {
-    uint transform_length;
     mat4 view_proj;
+    uint transform_length;
 } ubo;
 
 layout(binding = 2) buffer Transforms {
@@ -21,7 +21,10 @@ layout(location = 0) out vec2 tex_coords;
 layout(location = 1) out float shade;
 
 void main() {
-    mat4 animated_transform = transforms[joints.x] * weights.x + transforms[joints.y] * weights.y + transforms[joints.z] * weights.z + transforms[joints.w] * weights.w;
+    mat4 animated_transform = transforms[joints.x + ubo.transform_length * gl_InstanceIndex] * weights.x
+        + transforms[joints.y + ubo.transform_length * gl_InstanceIndex] * weights.y
+        + transforms[joints.z + ubo.transform_length * gl_InstanceIndex] * weights.z
+        + transforms[joints.w + ubo.transform_length * gl_InstanceIndex] * weights.w;
     vec4 world_position = model * animated_transform * vec4(position, 1.0);
     gl_Position = ubo.view_proj * world_position;
     shade = max(dot(normalize(camera_position), normal), 0.1);

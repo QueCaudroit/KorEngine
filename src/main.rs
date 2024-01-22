@@ -8,6 +8,7 @@ use kor_engine::{
 };
 
 const SIZE: usize = 20;
+const JOINT_COUNT: usize = 24;
 const ROTATION_SPEED: f32 = 0.5;
 const TRANSLATION_SPEED: f32 = 5.0;
 const FRAME_TIME: f32 = 1.0 / 60.0;
@@ -69,8 +70,9 @@ impl GameScene for Scene {
         GameSceneState::Continue
     }
 
-    fn display(&self, drawer: &mut dyn Drawer) {
+    fn display(&mut self, drawer: &mut dyn Drawer) {
         let mut foxes = Vec::with_capacity(SIZE * SIZE * SIZE);
+        let mut foxes_poses = Vec::with_capacity(SIZE * SIZE * SIZE * JOINT_COUNT);
         for x in 0..SIZE {
             for y in 0..SIZE {
                 for z in 0..SIZE {
@@ -79,21 +81,32 @@ impl GameScene for Scene {
                             .translate([3.5 * x as f32, 3.5 * y as f32, 3.5 * z as f32])
                             .rotate_y(self.angle)
                             .scale([0.02; 3]),
-                    )
+                    );
+                    if let Some(Asset::Animated(_, animator)) = &mut self.fox {
+                        animator.reset();
+                        animator.scale_node(
+                            3,
+                            [(self.angle * 3.0 + (x + y + z) as f32).sin() + 1.0; 3].into(),
+                        );
+                        foxes_poses.extend(animator.compute_transforms());
+                    } else {
+                        panic!("fox is not animated")
+                    }
                 }
             }
         }
-        match (&self.fox, &self.monkey) {
+        match (&mut self.fox, &mut self.monkey) {
             (Some(fox), Some(monkey)) => {
                 drawer.draw(
                     self.camera,
                     &[
-                        DisplayRequest::Still(fox, &foxes),
-                        DisplayRequest::Still(
+                        DisplayRequest::In3D(fox, &foxes, Some(&foxes_poses)),
+                        DisplayRequest::In3D(
                             monkey,
                             &[Transform::new()
                                 .translate([-3.5, 0.0, 0.0])
                                 .rotate_y(self.angle)],
+                            None,
                         ),
                     ],
                 );

@@ -15,7 +15,7 @@ pub mod graphics;
 pub mod input;
 
 pub enum DisplayRequest<'a> {
-    Still(&'a Asset, &'a [Transform]),
+    In3D(&'a Asset, &'a [Transform], Option<&'a [Transform]>),
 }
 
 pub enum GameSceneState {
@@ -26,7 +26,7 @@ pub enum GameSceneState {
 pub trait GameScene {
     fn load(&mut self, loader: &mut dyn Loader);
     fn update(&mut self, input: &Input) -> GameSceneState;
-    fn display(&self, drawer: &mut dyn Drawer);
+    fn display(&mut self, drawer: &mut dyn Drawer);
 }
 
 struct GameLoop {

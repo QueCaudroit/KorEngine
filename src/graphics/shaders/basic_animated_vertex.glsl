@@ -3,6 +3,7 @@
 layout(binding = 0) uniform UniformBufferObject {
     mat4 view_proj;
     vec4 color;
+    uint transform_length;
 } ubo;
 
 
@@ -20,7 +21,10 @@ layout(location = 8) in uvec4 joints;
 layout(location = 0) out vec4 fragColor;
 
 void main() {
-    mat4 animated_transform = transforms[joints.x] * weights.x + transforms[joints.y] * weights.y + transforms[joints.z] * weights.z + transforms[joints.w] * weights.w;
+    mat4 animated_transform = transforms[joints.x + ubo.transform_length * gl_InstanceIndex] * weights.x
+        + transforms[joints.y + ubo.transform_length * gl_InstanceIndex] * weights.y
+        + transforms[joints.z + ubo.transform_length * gl_InstanceIndex] * weights.z
+        + transforms[joints.w + ubo.transform_length * gl_InstanceIndex] * weights.w;
     vec4 world_position = model * animated_transform * vec4(position, 1.0);
     gl_Position = ubo.view_proj * world_position;
     vec3 color_temp = ubo.color.rgb * max(dot(normalize(camera_position), normal), 0.1);

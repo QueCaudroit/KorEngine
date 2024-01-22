@@ -10,7 +10,6 @@ pub struct Animator {
 impl Animator {
     pub fn new(
         all_nodes: &Vec<gltf::Node>,
-        root_node_id: usize,
         node_ids: Vec<usize>,
         inverse_transform_option: Option<Vec<Transform>>,
     ) -> (Self, Vec<u32>) {
@@ -20,10 +19,20 @@ impl Animator {
         let mut parents = vec![usize::MAX; node_ids.len()];
         let mut start_nodes = Vec::with_capacity(node_ids.len());
         let mut inverse_transforms = Vec::with_capacity(node_ids.len());
-        let mut node_to_traverse = vec![root_node_id];
         for (i, &node_id) in node_ids.iter().enumerate() {
             global_id_to_joint[node_id] = i;
         }
+        for node in all_nodes {
+            let parent_id = node.index();
+            for child_id in node.children().map(|n| n.index()) {
+                all_parents[child_id] = parent_id;
+            }
+        }
+        let mut root_node_id = node_ids[0];
+        while all_parents[root_node_id] != usize::MAX {
+            root_node_id = all_parents[root_node_id];
+        }
+        let mut node_to_traverse = vec![root_node_id];
         while let Some(node_id) = node_to_traverse.pop() {
             let joint_id = global_id_to_joint[node_id];
             for child_id in all_nodes[node_id].children().map(|n| n.index()) {
@@ -96,6 +105,18 @@ impl Animator {
             result.push(transform.compose(&self.inverse_transforms[i]));
         }
         result
+    }
+
+    pub fn scale_node(&mut self, node_id: usize, scale: Vec3) {
+        self.nodes[node_id].scale = self.nodes[node_id].scale * scale;
+    }
+
+    pub fn translate_node(&mut self, node_id: usize, translation: Vec3) {
+        self.nodes[node_id].translation = self.nodes[node_id].translation + translation;
+    }
+
+    pub fn rotate_node(&mut self, node_id: usize, rotation: Quaternion) {
+        self.nodes[node_id].rotation = rotation * self.nodes[node_id].rotation;
     }
 }
 
