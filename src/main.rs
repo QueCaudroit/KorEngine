@@ -12,6 +12,7 @@ const JOINT_COUNT: usize = 24;
 const ROTATION_SPEED: f32 = 0.5;
 const TRANSLATION_SPEED: f32 = 5.0;
 const FRAME_TIME: f32 = 1.0 / 60.0;
+const ANIMATION_LOOP_TIME: f32 = 1.0;
 
 struct Scene {
     frequency: f32,
@@ -71,6 +72,8 @@ impl GameScene for Scene {
     }
 
     fn display(&mut self, drawer: &mut dyn Drawer) {
+        let duration = Instant::now().duration_since(self.start_time).as_millis();
+        let t = (duration as f32) / 1000.0 % ANIMATION_LOOP_TIME;
         let mut foxes = Vec::with_capacity(SIZE * SIZE * SIZE);
         let mut foxes_poses = Vec::with_capacity(SIZE * SIZE * SIZE * JOINT_COUNT);
         for x in 0..SIZE {
@@ -84,10 +87,7 @@ impl GameScene for Scene {
                     );
                     if let Some(Asset::Animated(_, animator)) = &mut self.fox {
                         animator.reset();
-                        animator.scale_node(
-                            3,
-                            [(self.angle * 3.0 + (x + y + z) as f32).sin() + 1.0; 3].into(),
-                        );
+                        animator.animate(2, t);
                         foxes_poses.extend(animator.compute_transforms());
                     } else {
                         panic!("fox is not animated")

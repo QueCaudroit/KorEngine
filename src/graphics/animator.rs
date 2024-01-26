@@ -1,21 +1,26 @@
-use crate::geometry::{Quaternion, Transform, Vec3};
+use crate::{
+    geometry::{Quaternion, Transform, Vec3},
+    graphics::animation::{AnimatedValue, Animation},
+};
 
 pub struct Animator {
     nodes: Vec<Node>,
     start_nodes: Vec<Node>,
     inverse_transforms: Vec<Transform>,
     parents: Vec<usize>,
+    pub animations: Vec<Animation>,
 }
 
 impl Animator {
     pub fn new(
-        all_nodes: &Vec<gltf::Node>,
-        node_ids: Vec<usize>,
+        all_nodes: &[gltf::Node],
+        node_ids: &[usize],
         inverse_transform_option: Option<Vec<Transform>>,
-    ) -> (Self, Vec<u32>) {
+    ) -> (Self, Vec<usize>, Vec<usize>) {
         let mut global_id_to_joint = vec![usize::MAX; all_nodes.len()];
         let mut global_id_to_inner = vec![usize::MAX; all_nodes.len()];
         let mut all_parents = vec![usize::MAX; all_nodes.len()];
+        let mut joint_id_to_inner = vec![usize::MAX; node_ids.len()];
         let mut parents = vec![usize::MAX; node_ids.len()];
         let mut start_nodes = Vec::with_capacity(node_ids.len());
         let mut inverse_transforms = Vec::with_capacity(node_ids.len());
@@ -37,14 +42,12 @@ impl Animator {
             let joint_id = global_id_to_joint[node_id];
             for child_id in all_nodes[node_id].children().map(|n| n.index()) {
                 node_to_traverse.push(child_id);
-                if joint_id < usize::MAX && global_id_to_joint[child_id] < usize::MAX {
-                    all_parents[child_id] = node_id;
-                }
             }
             if joint_id < usize::MAX {
                 let inner_id = start_nodes.len();
-                let parent_id = global_id_to_inner[all_parents[node_id]];
+                joint_id_to_inner[joint_id] = inner_id;
                 global_id_to_inner[node_id] = inner_id;
+                let parent_id = global_id_to_inner[all_parents[node_id]];
                 parents[inner_id] = parent_id;
                 let (translation, rotation, scale) = all_nodes[node_id].transform().decomposed();
                 start_nodes.push(Node {
@@ -73,11 +76,10 @@ impl Animator {
                 start_nodes,
                 inverse_transforms,
                 parents,
+                animations: Vec::new(),
             },
-            global_id_to_inner
-                .into_iter()
-                .map(|i| if i != usize::MAX { i as u32 } else { 0 })
-                .collect(),
+            global_id_to_inner,
+            joint_id_to_inner,
         )
     }
 
@@ -117,6 +119,20 @@ impl Animator {
 
     pub fn rotate_node(&mut self, node_id: usize, rotation: Quaternion) {
         self.nodes[node_id].rotation = rotation * self.nodes[node_id].rotation;
+    }
+
+    pub fn animate(&mut self, id: usize, t: f32) {
+        for animated_value in self.animations[id].compute(t) {
+            match animated_value {
+                AnimatedValue::Translation(node_id, translation) => {
+                    self.nodes[node_id].translation = translation
+                }
+                AnimatedValue::Rotation(node_id, rotation) => {
+                    self.nodes[node_id].rotation = rotation
+                }
+                AnimatedValue::Scale(node_id, scale) => self.nodes[node_id].scale = scale,
+            }
+        }
     }
 }
 

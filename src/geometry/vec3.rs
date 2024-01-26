@@ -1,5 +1,7 @@
 use std::ops::{Add, Mul, Sub};
 
+use crate::geometry::Interpolable;
+
 #[derive(Clone, Copy)]
 pub struct Vec3 {
     pub x: f32,
@@ -34,6 +36,28 @@ impl Vec3 {
         let [y1, y2, y3, y4] = self.y.to_le_bytes();
         let [z1, z2, z3, z4] = self.z.to_le_bytes();
         [x1, x2, x3, x4, y1, y2, y3, y4, z1, z2, z3, z4]
+    }
+}
+
+impl Interpolable for Vec3 {
+    fn linear_interpolation(self, other: Self, alpha: f32) -> Self {
+        self * (1.0 - alpha) + other * alpha
+    }
+
+    fn cubic_interpolation(
+        self,
+        other: Self,
+        out_tangent: Self,
+        in_tangent: Self,
+        time_interval: f32,
+        alpha: f32,
+    ) -> Self {
+        let alpha2 = alpha * alpha;
+        let alpha3 = alpha2 * alpha;
+        self * (2.0 * alpha3 - 3.0 * alpha2 + 1.0)
+            + out_tangent * (time_interval * (alpha3 - 2.0 * alpha2 + alpha))
+            + other * (3.0 * alpha2 - 2.0 * alpha3)
+            + in_tangent * (time_interval * (alpha3 - alpha2))
     }
 }
 

@@ -17,14 +17,13 @@ use vulkano::{
 use crate::{
     geometry::Transform,
     graphics::{
+        animation::{AnimatedProperty, Animation, AnimationChannel, Sampler},
         animator::Animator,
-        engine::{Engine, Normal, Position},
+        engine::{Engine, Joint, Normal, Position, TextureCoord, Weight},
         format_converter::convert_texture,
     },
     Loader,
 };
-
-use super::engine::{Joint, TextureCoord, Weight};
 
 pub enum Asset {
     Animated(Vec<AnimatedPrimitive>, Animator),
@@ -79,9 +78,21 @@ impl Loader for Engine {
                     .reader(|buffer| Some(&gltf_buffers[buffer.index()]))
                     .read_inverse_bind_matrices()
                     .map(|i| i.map(Transform::from_homogeneous).collect());
-                let (animator, mapping) = Animator::new(&all_nodes, joints, inverse_matrices);
+                let (mut animator, global_mapping, joint_mapping) =
+                    Animator::new(&all_nodes, &joints, inverse_matrices);
+                for animation in gltf_document.animations() {
+                    let mut channels = Vec::new();
+                    for gltf_channel in animation.channels() {
+                        if let Some(channel) =
+                            load_channel(&gltf_channel, &joints, &global_mapping, &gltf_buffers)
+                        {
+                            channels.push(channel);
+                        }
+                    }
+                    animator.animations.push(Animation { channels });
+                }
                 Asset::Animated(
-                    self.load_animated_primitive(mesh, gltf_buffers, gltf_images, mapping),
+                    self.load_animated_primitive(mesh, gltf_buffers, gltf_images, joint_mapping),
                     animator,
                 )
             }
@@ -95,7 +106,7 @@ impl Engine {
         mesh: Mesh,
         gltf_buffers: Vec<gltf::buffer::Data>,
         gltf_images: Vec<gltf::image::Data>,
-        mapping: Vec<u32>,
+        mapping: Vec<usize>,
     ) -> Vec<AnimatedPrimitive> {
         let mut primitives = Vec::new();
         for primitive in mesh.primitives() {
@@ -180,8 +191,12 @@ impl<'a, 's> Engine {
         reader: &Reader<'a, 's, impl Clone + Fn(gltf::Buffer<'a>) -> Option<&'s [u8]>>,
         index_buffer_option: &Option<Subbuffer<[u32]>>,
         vertex_len: u64,
-        mapping: &[u32],
+        mapping: &[usize],
     ) -> (Subbuffer<[Joint]>, Subbuffer<[Weight]>) {
+        let mapping: Vec<_> = mapping
+            .iter()
+            .map(|&i| if i != usize::MAX { i as u32 } else { 0 })
+            .collect();
         let joints_buffer_temp = Buffer::from_iter(
             self.allocators.memory.clone(),
             BufferCreateInfo {
@@ -194,7 +209,12 @@ impl<'a, 's> Engine {
                 ..Default::default()
             },
             reader.read_joints(0).unwrap().into_u16().map(|j| Joint {
-                joints: [j[0] as u32, j[1] as u32, j[2] as u32, j[3] as u32],
+                joints: [
+                    mapping[j[0] as usize],
+                    mapping[j[1] as usize],
+                    mapping[j[2] as usize],
+                    mapping[j[3] as usize],
+                ],
             }),
         )
         .unwrap();
@@ -211,20 +231,6 @@ impl<'a, 's> Engine {
                 ..Default::default()
             },
             vertex_len,
-        )
-        .unwrap();
-        let mapping_buffer = Buffer::from_iter(
-            self.allocators.memory.clone(),
-            BufferCreateInfo {
-                usage: BufferUsage::STORAGE_BUFFER,
-                ..Default::default()
-            },
-            AllocationCreateInfo {
-                memory_type_filter: MemoryTypeFilter::PREFER_HOST
-                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-                ..Default::default()
-            },
-            mapping.iter().copied(),
         )
         .unwrap();
         let mut builder = AutoCommandBufferBuilder::primary(
@@ -273,48 +279,8 @@ impl<'a, 's> Engine {
                 .unwrap();
         }
         let command_buffer = builder.build().unwrap();
-        let mut builder = AutoCommandBufferBuilder::primary(
-            &self.allocators.command_buffer,
-            self.queue.queue_family_index(),
-            CommandBufferUsage::OneTimeSubmit,
-        )
-        .unwrap();
-
-        let layout = self
-            .pipelines
-            .map_joints
-            .layout()
-            .set_layouts()
-            .first()
-            .unwrap();
-        let set = PersistentDescriptorSet::new(
-            &self.allocators.descriptor_set,
-            layout.clone(),
-            [
-                WriteDescriptorSet::buffer(0, joints_buffer.clone()),
-                WriteDescriptorSet::buffer(1, mapping_buffer.clone()),
-            ],
-            [],
-        )
-        .unwrap();
-        builder
-            .bind_pipeline_compute(self.pipelines.map_joints.clone())
-            .unwrap()
-            .bind_descriptor_sets(
-                PipelineBindPoint::Compute,
-                self.pipelines.map_joints.layout().clone(),
-                0,
-                set,
-            )
-            .unwrap()
-            .dispatch([vertex_len as u32 / 64 + 1, 1, 1])
-            .unwrap();
-        let command_buffer_map = builder.build().unwrap();
-
         let future = sync::now(self.device.clone())
             .then_execute(self.queue.clone(), command_buffer)
-            .unwrap()
-            .then_execute(self.queue.clone(), command_buffer_map)
             .unwrap()
             .then_signal_fence_and_flush()
             .unwrap();
@@ -804,4 +770,113 @@ impl<'a, 's> Engine {
         future.wait(None).unwrap();
         Some((tex_coord, ImageView::new_default(image).unwrap()))
     }
+}
+
+fn load_channel(
+    channel: &gltf::animation::Channel,
+    joints: &[usize],
+    mapping: &[usize],
+    buffer_data: &[gltf::buffer::Data],
+) -> Option<AnimationChannel> {
+    let target = channel.target();
+    let node_id_gltf = target.node().index();
+    if !joints.contains(&node_id_gltf) {
+        return None;
+    }
+    let node_id = mapping[node_id_gltf];
+    let reader = channel.reader(|buffer| Some(&buffer_data[buffer.index()]));
+    let sampler = channel.sampler();
+    let timestamps: Vec<_> = reader.read_inputs().unwrap().collect();
+    let t_min = timestamps[0];
+    let t_max = timestamps[timestamps.len() - 1];
+    let output = reader.read_outputs().unwrap();
+    let interpolation = sampler.interpolation();
+    let animated_property = match output {
+        gltf::animation::util::ReadOutputs::Rotations(rotations) => match interpolation {
+            gltf::animation::Interpolation::Step => AnimatedProperty::Rotation(Sampler::Step(
+                rotations.into_f32().map(|q| q.into()).collect(),
+            )),
+            gltf::animation::Interpolation::Linear => AnimatedProperty::Rotation(Sampler::Linear(
+                rotations.into_f32().map(|q| q.into()).collect(),
+            )),
+            gltf::animation::Interpolation::CubicSpline => {
+                let mut rotation_iter = rotations.into_f32().map(|q| q.into());
+                let frame_count = timestamps.len();
+                let mut in_tangents = Vec::with_capacity(frame_count);
+                let mut values = Vec::with_capacity(frame_count);
+                let mut out_tangents = Vec::with_capacity(frame_count);
+                for _ in 0..frame_count {
+                    in_tangents.push(rotation_iter.next().unwrap());
+                }
+                for _ in 0..frame_count {
+                    values.push(rotation_iter.next().unwrap());
+                }
+                for _ in 0..frame_count {
+                    out_tangents.push(rotation_iter.next().unwrap());
+                }
+                AnimatedProperty::Rotation(Sampler::Cubic(in_tangents, values, out_tangents))
+            }
+        },
+        gltf::animation::util::ReadOutputs::Translations(translations) => match interpolation {
+            gltf::animation::Interpolation::Step => AnimatedProperty::Translation(Sampler::Step(
+                translations.map(|t| t.into()).collect(),
+            )),
+            gltf::animation::Interpolation::Linear => AnimatedProperty::Translation(
+                Sampler::Linear(translations.map(|t| t.into()).collect()),
+            ),
+            gltf::animation::Interpolation::CubicSpline => {
+                let mut translation_iter = translations.map(|t| t.into());
+                let frame_count = timestamps.len();
+                let mut in_tangents = Vec::with_capacity(frame_count);
+                let mut values = Vec::with_capacity(frame_count);
+                let mut out_tangents = Vec::with_capacity(frame_count);
+                for _ in 0..frame_count {
+                    in_tangents.push(translation_iter.next().unwrap());
+                }
+                for _ in 0..frame_count {
+                    values.push(translation_iter.next().unwrap());
+                }
+                for _ in 0..frame_count {
+                    out_tangents.push(translation_iter.next().unwrap());
+                }
+                AnimatedProperty::Translation(Sampler::Cubic(in_tangents, values, out_tangents))
+            }
+        },
+        gltf::animation::util::ReadOutputs::Scales(scales) => match interpolation {
+            gltf::animation::Interpolation::Step => {
+                AnimatedProperty::Scale(Sampler::Step(scales.map(|t| t.into()).collect()))
+            }
+            gltf::animation::Interpolation::Linear => {
+                AnimatedProperty::Scale(Sampler::Linear(scales.map(|t| t.into()).collect()))
+            }
+            gltf::animation::Interpolation::CubicSpline => {
+                let mut scale_iter = scales.map(|t| t.into());
+                let frame_count = timestamps.len();
+                let mut in_tangents = Vec::with_capacity(frame_count);
+                let mut values = Vec::with_capacity(frame_count);
+                let mut out_tangents = Vec::with_capacity(frame_count);
+                for _ in 0..frame_count {
+                    in_tangents.push(scale_iter.next().unwrap());
+                }
+                for _ in 0..frame_count {
+                    values.push(scale_iter.next().unwrap());
+                }
+                for _ in 0..frame_count {
+                    out_tangents.push(scale_iter.next().unwrap());
+                }
+                AnimatedProperty::Scale(Sampler::Cubic(in_tangents, values, out_tangents))
+            }
+        },
+        _ => {
+            println!("morph target animation not handled yet");
+            return None;
+        }
+    };
+    Some(AnimationChannel {
+        t_max,
+        t_min,
+        node_id,
+        timestamps,
+        animated_property,
+    })
 }

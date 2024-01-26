@@ -1,5 +1,7 @@
 use std::ops::{Add, Div, Mul, Sub};
 
+use crate::geometry::Interpolable;
+
 const SPERICAL_INTERPOLATION_LIMIT: f32 = 0.1;
 
 #[derive(Clone, Copy)]
@@ -15,23 +17,29 @@ impl Quaternion {
         self.x * other.x + self.y * other.y + self.z * other.z + self.w * other.w
     }
 
-    pub fn spherical_interpolation(self, other: Self, alpha: f32) -> Self {
+    pub fn normalize(self) -> Self {
+        self / self.dot(self).sqrt()
+    }
+
+    pub fn real_linear_interpolation(self, other: Self, alpha: f32) -> Self {
+        self * (1.0 - alpha) + other * alpha
+    }
+}
+
+impl Interpolable for Quaternion {
+    fn linear_interpolation(self, other: Self, alpha: f32) -> Self {
         let d = self.dot(other);
         let angle = d.abs().acos();
         let target = other * d.signum();
         let norm = angle.sin();
         if norm < SPERICAL_INTERPOLATION_LIMIT {
             // avoid dividing by a very small number
-            return self.linear_interpolation(target, alpha);
+            return self.real_linear_interpolation(target, alpha);
         }
         self * (((1.0 - alpha) * angle).sin() / norm) + target * ((alpha * angle).sin() / norm)
     }
 
-    pub fn linear_interpolation(self, other: Self, alpha: f32) -> Self {
-        self * (1.0 - alpha) + other * alpha
-    }
-
-    pub fn cubic_interpolation(
+    fn cubic_interpolation(
         self,
         other: Self,
         out_tangent: Self,
@@ -45,10 +53,6 @@ impl Quaternion {
             + out_tangent * (time_interval * (alpha3 - 2.0 * alpha2 + alpha))
             + other * (3.0 * alpha2 - 2.0 * alpha3)
             + in_tangent * (time_interval * (alpha3 - alpha2))
-    }
-
-    pub fn normalize(self) -> Self {
-        self / self.dot(self).sqrt()
     }
 }
 

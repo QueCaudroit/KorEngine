@@ -21,11 +21,9 @@ use vulkano::{
 };
 
 use crate::graphics::{
-    engine::{CameraPosition, Model, Normal, Position, TextureCoord},
+    engine::{CameraPosition, Joint, Model, Normal, Position, TextureCoord, Weight},
     shaders::ShaderCollection,
 };
-
-use super::engine::{Joint, Weight};
 
 pub struct PipelineCollection {
     pub basic: Arc<GraphicsPipeline>,
@@ -88,7 +86,20 @@ impl PipelineCollection {
             render_pass.clone(),
             dimensions,
         );
-        self.textured = build_textured_pipeline(device, &self.shaders, render_pass, dimensions);
+        self.textured = build_textured_pipeline(
+            device.clone(),
+            &self.shaders,
+            render_pass.clone(),
+            dimensions,
+        );
+        self.basic_animated = build_basic_animated_pipeline(
+            device.clone(),
+            &self.shaders,
+            render_pass.clone(),
+            dimensions,
+        );
+        self.textured_animated =
+            build_textured_animated_pipeline(device, &self.shaders, render_pass, dimensions);
     }
 }
 
