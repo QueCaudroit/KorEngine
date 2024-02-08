@@ -7,7 +7,6 @@ use vulkano::{
         AutoCommandBufferBuilder, CommandBufferUsage, CopyBufferInfo, CopyBufferToImageInfo,
     },
     descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
-    format::Format,
     image::{view::ImageView, Image, ImageCreateInfo, ImageType, ImageUsage},
     memory::allocator::{AllocationCreateInfo, MemoryTypeFilter},
     pipeline::{Pipeline, PipelineBindPoint},
@@ -19,7 +18,7 @@ use crate::{
     graphics::{
         animation::{AnimatedProperty, Animation, AnimationChannel, Sampler},
         animator::Animator,
-        engine::{Engine, Joint, Normal, Position, TextureCoord, Weight},
+        engine::{Engine, Joint, Normal, Position, TextureCoord, Weight, IMAGE_FORMAT},
         format_converter::convert_texture,
     },
     Loader,
@@ -741,7 +740,7 @@ impl<'a, 's> Engine {
             self.allocators.memory.clone(),
             ImageCreateInfo {
                 image_type: ImageType::Dim2d,
-                format: Format::B8G8R8A8_UNORM,
+                format: IMAGE_FORMAT,
                 extent,
                 usage: ImageUsage::TRANSFER_DST | ImageUsage::SAMPLED,
                 ..Default::default()

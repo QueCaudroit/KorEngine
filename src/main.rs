@@ -99,6 +99,7 @@ impl GameScene for Scene {
             (Some(fox), Some(monkey)) => {
                 drawer.draw(
                     self.camera,
+                    [0.0, 7000.0, -7000.0],
                     &[
                         DisplayRequest::In3D(fox, &foxes, Some(&foxes_poses)),
                         DisplayRequest::In3D(

@@ -46,6 +46,9 @@ use crate::{
     DisplayRequest, Drawer,
 };
 
+pub const IMAGE_FORMAT: Format = Format::R8G8B8A8_SRGB;
+pub const DEPTH_FORMAT: Format = Format::D16_UNORM;
+
 #[derive(BufferContents, Vertex)]
 #[repr(C)]
 pub struct Position {
@@ -69,9 +72,9 @@ pub struct TextureCoord {
 
 #[derive(BufferContents, Vertex)]
 #[repr(C)]
-pub struct CameraPosition {
+pub struct LightPosition {
     #[format(R32G32B32_SFLOAT)]
-    pub camera_position: [f32; 3],
+    pub light_position: [f32; 3],
 }
 
 #[derive(BufferContents, Vertex)]
@@ -99,7 +102,6 @@ pub struct Engine {
     pub surface: Arc<Surface>,
     pub swapchain: Arc<Swapchain>,
     pub caps: SurfaceCapabilities,
-    pub image_format: Format,
     pub device: Arc<Device>,
     pub queue: Arc<Queue>,
     pub render_pass: Arc<RenderPass>,
@@ -115,7 +117,7 @@ pub struct Engine {
 
 impl Engine {
     pub fn new(window: Arc<Window>, required_extensions: InstanceExtensions) -> Self {
-        let (surface, caps, image_format, device, queue, render_pass) =
+        let (surface, caps, device, queue, render_pass) =
             engine_init(window.clone(), required_extensions);
         let allocators = AllocatorCollection::new(device.clone());
         let composite_alpha = caps.supported_composite_alpha.into_iter().next().unwrap();
@@ -124,7 +126,7 @@ impl Engine {
             surface.clone(),
             SwapchainCreateInfo {
                 min_image_count: caps.min_image_count + 1,
-                image_format,
+                image_format: IMAGE_FORMAT,
                 image_extent: window.inner_size().into(),
                 image_usage: ImageUsage::COLOR_ATTACHMENT,
                 composite_alpha,
@@ -157,7 +159,6 @@ impl Engine {
             surface,
             swapchain,
             caps,
-            image_format,
             device,
             queue,
             render_pass,
@@ -230,16 +231,17 @@ impl Engine {
         primitive: &StillPrimitive,
         view_proj: [[f32; 4]; 4],
         item_pos: Subbuffer<[[[f32; 4]; 4]]>,
-        camera_position: Subbuffer<[[f32; 3]]>,
+        light_position: [f32; 3],
+        instance_count: usize,
         builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
     ) {
-        let instance_count = camera_position.len();
         match primitive {
             StillPrimitive::Basic(position_buffer, normal_buffer, color) => {
                 let uniform_subbuffer = self.uniform_buffer.allocate_sized().unwrap();
                 *uniform_subbuffer.write().unwrap() = basic_vertex_shader::UniformBufferObject {
                     color: *color,
                     view_proj,
+                    light_position,
                 };
                 let layout = self.pipelines.basic.layout().set_layouts().first().unwrap();
                 let descriptor_set = PersistentDescriptorSet::new(
@@ -261,12 +263,7 @@ impl Engine {
                     .unwrap()
                     .bind_vertex_buffers(
                         0,
-                        (
-                            position_buffer.clone(),
-                            normal_buffer.clone(),
-                            camera_position,
-                            item_pos,
-                        ),
+                        (position_buffer.clone(), normal_buffer.clone(), item_pos),
                     )
                     .unwrap()
                     .draw(position_buffer.len() as u32, instance_count as u32, 0, 0)
@@ -274,8 +271,10 @@ impl Engine {
             }
             StillPrimitive::Textured(position_buffer, normal_buffer, texture_coord, texture) => {
                 let uniform_subbuffer = self.uniform_buffer.allocate_sized().unwrap();
-                *uniform_subbuffer.write().unwrap() =
-                    textured_vertex_shader::UniformBufferObject { view_proj };
+                *uniform_subbuffer.write().unwrap() = textured_vertex_shader::UniformBufferObject {
+                    view_proj,
+                    light_position,
+                };
                 let layout = self
                     .pipelines
                     .textured
@@ -313,7 +312,6 @@ impl Engine {
                             position_buffer.clone(),
                             normal_buffer.clone(),
                             texture_coord.clone(),
-                            camera_position,
                             item_pos,
                         ),
                     )
@@ -330,16 +328,17 @@ impl Engine {
         view_proj: [[f32; 4]; 4],
         item_pos: Subbuffer<[[[f32; 4]; 4]]>,
         pose_option: Option<&[Transform]>,
-        camera_position: Subbuffer<[[f32; 3]]>,
+        light_position: [f32; 3],
+        instance_count: usize,
         builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
     ) {
-        let instance_count = camera_position.len();
         match (primitive, pose_option) {
             (AnimatedPrimitive::Basic(position_buffer, normal_buffer, color, _, _), None) => {
                 let uniform_subbuffer = self.uniform_buffer.allocate_sized().unwrap();
                 *uniform_subbuffer.write().unwrap() = basic_vertex_shader::UniformBufferObject {
                     color: *color,
                     view_proj,
+                    light_position,
                 };
                 let layout = self.pipelines.basic.layout().set_layouts().first().unwrap();
                 let descriptor_set = PersistentDescriptorSet::new(
@@ -361,12 +360,7 @@ impl Engine {
                     .unwrap()
                     .bind_vertex_buffers(
                         0,
-                        (
-                            position_buffer.clone(),
-                            normal_buffer.clone(),
-                            camera_position,
-                            item_pos,
-                        ),
+                        (position_buffer.clone(), normal_buffer.clone(), item_pos),
                     )
                     .unwrap()
                     .draw(position_buffer.len() as u32, instance_count as u32, 0, 0)
@@ -384,8 +378,10 @@ impl Engine {
                 None,
             ) => {
                 let uniform_subbuffer = self.uniform_buffer.allocate_sized().unwrap();
-                *uniform_subbuffer.write().unwrap() =
-                    textured_vertex_shader::UniformBufferObject { view_proj };
+                *uniform_subbuffer.write().unwrap() = textured_vertex_shader::UniformBufferObject {
+                    view_proj,
+                    light_position,
+                };
                 let layout = self
                     .pipelines
                     .textured
@@ -423,7 +419,6 @@ impl Engine {
                             position_buffer.clone(),
                             normal_buffer.clone(),
                             texture_coord.clone(),
-                            camera_position,
                             item_pos,
                         ),
                     )
@@ -455,6 +450,7 @@ impl Engine {
                         color: *color,
                         view_proj,
                         transform_length: (pose_buffer.len() / item_pos.len()) as u32,
+                        light_position,
                     };
                 let layout = self
                     .pipelines
@@ -488,7 +484,6 @@ impl Engine {
                         (
                             position_buffer.clone(),
                             normal_buffer.clone(),
-                            camera_position,
                             item_pos,
                             weights.clone(),
                             joints.clone(),
@@ -530,6 +525,7 @@ impl Engine {
                     textured_animated_vertex_shader::UniformBufferObject {
                         view_proj,
                         transform_length: (pose_buffer.len() / item_pos.len()) as u32,
+                        light_position,
                     };
                 let layout = self
                     .pipelines
@@ -569,7 +565,6 @@ impl Engine {
                             position_buffer.clone(),
                             normal_buffer.clone(),
                             texture_coord.clone(),
-                            camera_position,
                             item_pos,
                             weights.clone(),
                             joints.clone(),
@@ -584,7 +579,12 @@ impl Engine {
 }
 
 impl Drawer for Engine {
-    fn draw(&mut self, camera_transform: Transform, display_request: &[DisplayRequest]) {
+    fn draw(
+        &mut self,
+        camera_transform: Transform,
+        light_position: [f32; 3],
+        display_request: &[DisplayRequest],
+    ) {
         let (image_i, suboptimal, acquire_future) =
             match acquire_next_image(self.swapchain.clone(), None) {
                 Ok(r) => (r.0 as usize, r.1, r.2),
@@ -607,22 +607,7 @@ impl Drawer for Engine {
         for displayed_item in display_request {
             match *displayed_item {
                 DisplayRequest::In3D(asset, item_pos, pose_option) => {
-                    let camera_positions = Buffer::from_iter(
-                        self.allocators.memory.clone(),
-                        BufferCreateInfo {
-                            usage: BufferUsage::VERTEX_BUFFER,
-                            ..Default::default()
-                        },
-                        AllocationCreateInfo {
-                            memory_type_filter: MemoryTypeFilter::PREFER_HOST
-                                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-                            ..Default::default()
-                        },
-                        item_pos
-                            .iter()
-                            .map(|pos| pos.reverse().compose(&camera_transform).translation),
-                    )
-                    .unwrap();
+                    let instance_count = item_pos.len();
                     let item_pos = Buffer::from_iter(
                         self.allocators.memory.clone(),
                         BufferCreateInfo {
@@ -644,7 +629,8 @@ impl Drawer for Engine {
                                     primive,
                                     view_proj,
                                     item_pos.clone(),
-                                    camera_positions.clone(),
+                                    light_position,
+                                    instance_count,
                                     &mut builder,
                                 );
                             }
@@ -656,7 +642,8 @@ impl Drawer for Engine {
                                     view_proj,
                                     item_pos.clone(),
                                     pose_option,
-                                    camera_positions.clone(),
+                                    light_position,
+                                    instance_count,
                                     &mut builder,
                                 );
                             }
@@ -693,7 +680,6 @@ fn engine_init(
 ) -> (
     Arc<Surface>,
     SurfaceCapabilities,
-    Format,
     Arc<Device>,
     Arc<Queue>,
     Arc<RenderPass>,
@@ -718,10 +704,6 @@ fn engine_init(
     let caps = physical_device
         .surface_capabilities(&surface, Default::default())
         .expect("failed to get surface capabilities");
-    let image_format = physical_device
-        .surface_formats(&surface, Default::default())
-        .unwrap()[0]
-        .0;
     let (device, mut queues) = Device::new(
         physical_device,
         DeviceCreateInfo {
@@ -739,8 +721,8 @@ fn engine_init(
     )
     .expect("failed to create device");
     let queue = queues.next().unwrap();
-    let render_pass = get_render_pass(device.clone(), image_format);
-    (surface, caps, image_format, device, queue, render_pass)
+    let render_pass = get_render_pass(device.clone());
+    (surface, caps, device, queue, render_pass)
 }
 
 fn select_physical_device(
@@ -774,18 +756,18 @@ fn select_physical_device(
     (physical_device, queue_family)
 }
 
-fn get_render_pass(device: Arc<Device>, image_format: Format) -> Arc<RenderPass> {
+fn get_render_pass(device: Arc<Device>) -> Arc<RenderPass> {
     vulkano::single_pass_renderpass!(
         device,
         attachments: {
             color: {
-                format: image_format,
+                format: IMAGE_FORMAT,
                 samples: 1,
                 load_op: Clear,
                 store_op: Store,
             },
             depth_stencil: {
-                format: Format::D16_UNORM,
+                format: DEPTH_FORMAT,
                 samples: 1,
                 load_op: Clear,
                 store_op: DontCare,
@@ -809,7 +791,7 @@ fn get_framebuffers(
             memory_allocator,
             ImageCreateInfo {
                 image_type: ImageType::Dim2d,
-                format: Format::D16_UNORM,
+                format: DEPTH_FORMAT,
                 extent: images[0].extent(),
                 usage: ImageUsage::DEPTH_STENCIL_ATTACHMENT | ImageUsage::TRANSIENT_ATTACHMENT,
                 ..Default::default()

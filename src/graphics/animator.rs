@@ -58,9 +58,11 @@ impl Animator {
                 inverse_transforms.push(match &inverse_transform_option {
                     Some(transforms) => transforms[joint_id],
                     None => {
-                        let transform =
-                            Transform::from_trs(translation.into(), rotation.into(), scale.into())
-                                .reverse();
+                        let transform = Transform::from_trs_reversed(
+                            translation.into(),
+                            rotation.into(),
+                            scale.into(),
+                        );
                         if parent_id < usize::MAX {
                             transform.compose(&inverse_transforms[parent_id])
                         } else {

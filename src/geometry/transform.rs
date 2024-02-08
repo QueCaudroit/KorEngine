@@ -67,6 +67,36 @@ impl Transform {
         }
     }
 
+    pub fn from_trs_reversed(t: Vec3, r: Quaternion, s: Vec3) -> Self {
+        let ww = r.w * r.w;
+        let xx = r.x * r.x;
+        let yy = r.y * r.y;
+        let zz = r.z * r.z;
+        let wx = r.w * r.x;
+        let wy = r.w * r.y;
+        let wz = r.w * r.z;
+        let xy = r.x * r.y;
+        let xz = r.x * r.z;
+        let yz = r.y * r.z;
+        let r11 = (ww + xx - yy - zz) / s.x;
+        let r12 = 2.0 * (xy - wz) / s.y;
+        let r13 = 2.0 * (xz + wy) / s.z;
+        let r21 = 2.0 * (xy + wz) / s.x;
+        let r22 = (ww - xx + yy - zz) / s.y;
+        let r23 = 2.0 * (yz - wx) / s.z;
+        let r31 = 2.0 * (xz - wy) / s.x;
+        let r32 = 2.0 * (yz + wx) / s.y;
+        let r33 = (ww - xx - yy + zz) / s.z;
+        Self {
+            translation: [
+                -t.x * r11 - t.y * r21 - t.z * r31,
+                -t.x * r12 - t.y * r22 - t.z * r32,
+                -t.x * r13 - t.y * r23 - t.z * r33,
+            ],
+            rotation_scale: [[r11, r12, r13], [r21, r22, r23], [r31, r32, r33]],
+        }
+    }
+
     pub fn translate(&self, offset: [f32; 3]) -> Self {
         Transform {
             translation: [
@@ -271,6 +301,7 @@ impl Transform {
         }
     }
 
+    /// Only works for non-scaled transforms
     pub fn reverse(&self) -> Self {
         Transform {
             rotation_scale: [

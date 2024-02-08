@@ -21,7 +21,7 @@ use vulkano::{
 };
 
 use crate::graphics::{
-    engine::{CameraPosition, Joint, Model, Normal, Position, TextureCoord, Weight},
+    engine::{Joint, Model, Normal, Position, TextureCoord, Weight},
     shaders::ShaderCollection,
 };
 
@@ -114,7 +114,6 @@ fn build_basic_pipeline(
     let vertex_input_state = [
         Position::per_vertex(),
         Normal::per_vertex(),
-        CameraPosition::per_instance(),
         Model::per_instance(),
     ]
     .definition(&vs.info().input_interface)
@@ -177,7 +176,6 @@ fn build_basic_animated_pipeline(
     let vertex_input_state = [
         Position::per_vertex(),
         Normal::per_vertex(),
-        CameraPosition::per_instance(),
         Model::per_instance(),
         Weight::per_vertex(),
         Joint::per_vertex(),
@@ -242,7 +240,6 @@ fn build_textured_pipeline(
         Position::per_vertex(),
         Normal::per_vertex(),
         TextureCoord::per_vertex(),
-        CameraPosition::per_instance(),
         Model::per_instance(),
     ]
     .definition(&vs.info().input_interface)
@@ -308,7 +305,6 @@ fn build_textured_animated_pipeline(
         Position::per_vertex(),
         Normal::per_vertex(),
         TextureCoord::per_vertex(),
-        CameraPosition::per_instance(),
         Model::per_instance(),
         Weight::per_vertex(),
         Joint::per_vertex(),

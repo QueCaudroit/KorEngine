@@ -80,7 +80,12 @@ pub trait Loader {
 }
 
 pub trait Drawer {
-    fn draw(&mut self, camera_transform: Transform, display_request: &[DisplayRequest]);
+    fn draw(
+        &mut self,
+        camera_transform: Transform,
+        light_position: [f32; 3],
+        display_request: &[DisplayRequest],
+    );
 }
 
 pub fn run(event_loop: EventLoop<()>, window: Window, gamescene: Box<dyn GameScene>) {

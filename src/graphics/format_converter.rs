@@ -17,51 +17,51 @@ pub fn convert_texture(data: &Data) -> impl ExactSizeIterator<Item = [u8; 4]> + 
 }
 
 fn convert_r8g8b8(pixel: &[u8]) -> [u8; 4] {
-    [pixel[2], pixel[1], pixel[0], u8::MAX]
+    [pixel[0], pixel[1], pixel[2], u8::MAX]
 }
 
 fn convert_r16g16b16(pixel: &[u8]) -> [u8; 4] {
-    [pixel[4], pixel[2], pixel[0], u8::MAX]
+    [pixel[0], pixel[2], pixel[4], u8::MAX]
 }
 
 fn convert_r8g8(pixel: &[u8]) -> [u8; 4] {
-    [0, pixel[1], pixel[0], u8::MAX]
+    [pixel[0], pixel[1], 0, u8::MAX]
 }
 
 fn convert_r16g16(pixel: &[u8]) -> [u8; 4] {
-    [0, pixel[2], pixel[0], u8::MAX]
+    [pixel[0], pixel[2], 0, u8::MAX]
 }
 
 fn convert_r8g8b8a8(pixel: &[u8]) -> [u8; 4] {
-    [pixel[2], pixel[1], pixel[0], pixel[3]]
+    [pixel[0], pixel[1], pixel[2], pixel[3]]
 }
 
 fn convert_r16g16b16a16(pixel: &[u8]) -> [u8; 4] {
-    [pixel[4], pixel[2], pixel[0], pixel[6]]
+    [pixel[0], pixel[2], pixel[4], pixel[6]]
 }
 
 fn convert_r8(pixel: &[u8]) -> [u8; 4] {
-    [0, 0, pixel[0], u8::MAX]
+    [pixel[0], 0, 0, u8::MAX]
 }
 
 fn convert_r16(pixel: &[u8]) -> [u8; 4] {
-    [0, 0, pixel[0], u8::MAX]
+    [pixel[0], 0, 0, u8::MAX]
 }
 
 fn convert_r32g32b32(pixel: &[u8]) -> [u8; 4] {
     [
-        (255.0 * f32::from_be_bytes([pixel[8], pixel[9], pixel[10], pixel[11]])) as u8,
-        (255.0 * f32::from_be_bytes([pixel[4], pixel[5], pixel[6], pixel[7]])) as u8,
         (255.0 * f32::from_be_bytes([pixel[0], pixel[1], pixel[2], pixel[3]])) as u8,
+        (255.0 * f32::from_be_bytes([pixel[4], pixel[5], pixel[6], pixel[7]])) as u8,
+        (255.0 * f32::from_be_bytes([pixel[8], pixel[9], pixel[10], pixel[11]])) as u8,
         u8::MAX,
     ]
 }
 
 fn convert_r32g32b32a32(pixel: &[u8]) -> [u8; 4] {
     [
-        (255.0 * f32::from_be_bytes([pixel[8], pixel[9], pixel[10], pixel[11]])) as u8,
-        (255.0 * f32::from_be_bytes([pixel[4], pixel[5], pixel[6], pixel[7]])) as u8,
         (255.0 * f32::from_be_bytes([pixel[0], pixel[1], pixel[2], pixel[3]])) as u8,
+        (255.0 * f32::from_be_bytes([pixel[4], pixel[5], pixel[6], pixel[7]])) as u8,
+        (255.0 * f32::from_be_bytes([pixel[8], pixel[9], pixel[10], pixel[11]])) as u8,
         (255.0 * f32::from_be_bytes([pixel[12], pixel[13], pixel[14], pixel[15]])) as u8,
     ]
 }
