@@ -2,11 +2,10 @@
 
 layout(binding = 0) uniform UniformBufferObject {
     mat4 view_proj;
-    vec4 color;
     vec3 light_position;
+    vec3 camera_position;
     uint transform_length;
 } ubo;
-
 
 layout(binding = 2) buffer Transforms {
     mat4 transforms[];
@@ -18,9 +17,9 @@ layout(location = 2) in mat4 model;
 layout(location = 6) in vec4 weights;
 layout(location = 7) in uvec4 joints;
 
-layout(location = 0) out vec4 fragColor;
-
-const float lambertian_diffuse = 0.31830988618; // 1/pi
+layout(location = 0) out vec3 light_direction;
+layout(location = 1) out vec3 camera_direction;
+layout(location = 2) out vec3 normal_direction;
 
 void main() {
     mat4 animated_transform = transforms[joints.x + ubo.transform_length * gl_InstanceIndex] * weights.x
@@ -29,9 +28,8 @@ void main() {
         + transforms[joints.w + ubo.transform_length * gl_InstanceIndex] * weights.w;
     mat4 world_transform = model * animated_transform;
     vec4 world_position = world_transform * vec4(position, 1.0);
-    vec3 world_normal = normalize((world_transform * vec4(normal, 0.0)).xyz);
     gl_Position = ubo.view_proj * world_position;
-    vec3 light_direction = normalize(ubo.light_position - world_position.xyz);
-    vec3 color_temp = ubo.color.rgb * (lambertian_diffuse * max(dot(light_direction, world_normal), 0.1));
-    fragColor =  vec4(color_temp, ubo.color.a);
+    light_direction = normalize(ubo.light_position - world_position.xyz);
+    camera_direction = normalize(ubo.camera_position - world_position.xyz);
+    normal_direction = normalize((world_transform * vec4(normal, 0.0)).xyz);
 }

@@ -33,9 +33,11 @@ pub enum AnimatedPrimitive {
     Basic(
         Subbuffer<[Position]>,
         Subbuffer<[Normal]>,
-        [f32; 4],
         Subbuffer<[Joint]>,
         Subbuffer<[Weight]>,
+        [f32; 4],
+        f32,
+        f32,
     ),
     Textured(
         Subbuffer<[Position]>,
@@ -44,16 +46,28 @@ pub enum AnimatedPrimitive {
         Arc<ImageView>,
         Subbuffer<[Joint]>,
         Subbuffer<[Weight]>,
+        [f32; 4],
+        f32,
+        f32,
     ),
 }
 
 pub enum StillPrimitive {
-    Basic(Subbuffer<[Position]>, Subbuffer<[Normal]>, [f32; 4]),
+    Basic(
+        Subbuffer<[Position]>,
+        Subbuffer<[Normal]>,
+        [f32; 4],
+        f32,
+        f32,
+    ),
     Textured(
         Subbuffer<[Position]>,
         Subbuffer<[Normal]>,
         Subbuffer<[TextureCoord]>,
         Arc<ImageView>,
+        [f32; 4],
+        f32,
+        f32,
     ),
 }
 
@@ -123,6 +137,7 @@ impl Engine {
                 vertex_len,
                 &index_buffer_option,
             );
+            let material = primitive.material().pbr_metallic_roughness();
             primitives.push(match texture_option {
                 Some((tex_coord, image)) => AnimatedPrimitive::Textured(
                     vertex_buffer,
@@ -131,16 +146,18 @@ impl Engine {
                     image,
                     joints_buffer,
                     weight_buffer,
+                    material.base_color_factor(),
+                    material.metallic_factor(),
+                    material.roughness_factor(),
                 ),
                 None => AnimatedPrimitive::Basic(
                     vertex_buffer,
                     normal_buffer,
-                    primitive
-                        .material()
-                        .pbr_metallic_roughness()
-                        .base_color_factor(),
                     joints_buffer,
                     weight_buffer,
+                    material.base_color_factor(),
+                    material.metallic_factor(),
+                    material.roughness_factor(),
                 ),
             })
         }
@@ -166,17 +183,23 @@ impl Engine {
                 vertex_buffer.len(),
                 &index_buffer_option,
             );
+            let material = primitive.material().pbr_metallic_roughness();
             primitives.push(match texture_option {
-                Some((tex_coord, image)) => {
-                    StillPrimitive::Textured(vertex_buffer, normal_buffer, tex_coord, image)
-                }
+                Some((tex_coord, image)) => StillPrimitive::Textured(
+                    vertex_buffer,
+                    normal_buffer,
+                    tex_coord,
+                    image,
+                    material.base_color_factor(),
+                    material.metallic_factor(),
+                    material.roughness_factor(),
+                ),
                 None => StillPrimitive::Basic(
                     vertex_buffer,
                     normal_buffer,
-                    primitive
-                        .material()
-                        .pbr_metallic_roughness()
-                        .base_color_factor(),
+                    material.base_color_factor(),
+                    material.metallic_factor(),
+                    material.roughness_factor(),
                 ),
             })
         }

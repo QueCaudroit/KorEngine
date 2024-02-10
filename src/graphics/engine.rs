@@ -39,8 +39,8 @@ use crate::{
         load_gltf::{AnimatedPrimitive, Asset, StillPrimitive},
         pipeline::PipelineCollection,
         shaders::{
-            basic_animated_vertex_shader, basic_vertex_shader, textured_animated_vertex_shader,
-            textured_vertex_shader,
+            basic_animated_vertex_shader, basic_fragment_shader, basic_vertex_shader,
+            textured_animated_vertex_shader, textured_fragment_shader, textured_vertex_shader,
         },
     },
     DisplayRequest, Drawer,
@@ -229,25 +229,40 @@ impl Engine {
     fn add_still_primitive_to_command_buffer(
         &self,
         primitive: &StillPrimitive,
-        view_proj: [[f32; 4]; 4],
+        camera_transform: Transform,
         item_pos: Subbuffer<[[[f32; 4]; 4]]>,
         light_position: [f32; 3],
-        instance_count: usize,
         builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
     ) {
+        let view_proj =
+            camera_transform
+                .reverse()
+                .project_perspective(FRAC_PI_2, 16.0 / 9.0, 0.1, 100.0);
+        let camera_position = camera_transform.translation;
+        let instance_count = item_pos.len() as u32;
         match primitive {
-            StillPrimitive::Basic(position_buffer, normal_buffer, color) => {
-                let uniform_subbuffer = self.uniform_buffer.allocate_sized().unwrap();
-                *uniform_subbuffer.write().unwrap() = basic_vertex_shader::UniformBufferObject {
-                    color: *color,
+            StillPrimitive::Basic(position_buffer, normal_buffer, color, metalness, roughness) => {
+                let vertex_count = position_buffer.len() as u32;
+                let vertex_uniform = self.uniform_buffer.allocate_sized().unwrap();
+                *vertex_uniform.write().unwrap() = basic_vertex_shader::UniformBufferObject {
                     view_proj,
-                    light_position,
+                    light_position: light_position.into(),
+                    camera_position,
+                };
+                let fragment_uniform = self.uniform_buffer.allocate_sized().unwrap();
+                *fragment_uniform.write().unwrap() = basic_fragment_shader::UniformBufferObject {
+                    color: *color,
+                    metalness: *metalness,
+                    roughness: *roughness,
                 };
                 let layout = self.pipelines.basic.layout().set_layouts().first().unwrap();
                 let descriptor_set = PersistentDescriptorSet::new(
                     &self.allocators.descriptor_set,
                     layout.clone(),
-                    [WriteDescriptorSet::buffer(0, uniform_subbuffer)],
+                    [
+                        WriteDescriptorSet::buffer(0, vertex_uniform),
+                        WriteDescriptorSet::buffer(1, fragment_uniform),
+                    ],
                     [],
                 )
                 .unwrap();
@@ -266,15 +281,32 @@ impl Engine {
                         (position_buffer.clone(), normal_buffer.clone(), item_pos),
                     )
                     .unwrap()
-                    .draw(position_buffer.len() as u32, instance_count as u32, 0, 0)
+                    .draw(vertex_count, instance_count, 0, 0)
                     .unwrap();
             }
-            StillPrimitive::Textured(position_buffer, normal_buffer, texture_coord, texture) => {
-                let uniform_subbuffer = self.uniform_buffer.allocate_sized().unwrap();
-                *uniform_subbuffer.write().unwrap() = textured_vertex_shader::UniformBufferObject {
+            StillPrimitive::Textured(
+                position_buffer,
+                normal_buffer,
+                texture_coord,
+                texture,
+                color,
+                metalness,
+                roughness,
+            ) => {
+                let vertex_count = position_buffer.len() as u32;
+                let vertex_uniform = self.uniform_buffer.allocate_sized().unwrap();
+                *vertex_uniform.write().unwrap() = textured_vertex_shader::UniformBufferObject {
                     view_proj,
-                    light_position,
+                    light_position: light_position.into(),
+                    camera_position,
                 };
+                let fragment_uniform = self.uniform_buffer.allocate_sized().unwrap();
+                *fragment_uniform.write().unwrap() =
+                    textured_fragment_shader::UniformBufferObject {
+                        color: *color,
+                        metalness: *metalness,
+                        roughness: *roughness,
+                    };
                 let layout = self
                     .pipelines
                     .textured
@@ -286,9 +318,10 @@ impl Engine {
                     &self.allocators.descriptor_set,
                     layout.clone(),
                     [
-                        WriteDescriptorSet::buffer(0, uniform_subbuffer),
+                        WriteDescriptorSet::buffer(0, vertex_uniform),
+                        WriteDescriptorSet::buffer(1, fragment_uniform),
                         WriteDescriptorSet::image_view_sampler(
-                            1,
+                            3,
                             texture.clone(),
                             self.sampler.clone(),
                         ),
@@ -316,7 +349,7 @@ impl Engine {
                         ),
                     )
                     .unwrap()
-                    .draw(position_buffer.len() as u32, instance_count as u32, 0, 0)
+                    .draw(vertex_count, instance_count, 0, 0)
                     .unwrap();
             }
         }
@@ -325,26 +358,52 @@ impl Engine {
     fn add_animated_primitive_to_command_buffer(
         &self,
         primitive: &AnimatedPrimitive,
-        view_proj: [[f32; 4]; 4],
+        camera_transform: Transform,
         item_pos: Subbuffer<[[[f32; 4]; 4]]>,
         pose_option: Option<&[Transform]>,
         light_position: [f32; 3],
-        instance_count: usize,
         builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
     ) {
+        let view_proj =
+            camera_transform
+                .reverse()
+                .project_perspective(FRAC_PI_2, 16.0 / 9.0, 0.1, 100.0);
+        let camera_position = camera_transform.translation;
+        let instance_count = item_pos.len() as u32;
         match (primitive, pose_option) {
-            (AnimatedPrimitive::Basic(position_buffer, normal_buffer, color, _, _), None) => {
-                let uniform_subbuffer = self.uniform_buffer.allocate_sized().unwrap();
-                *uniform_subbuffer.write().unwrap() = basic_vertex_shader::UniformBufferObject {
-                    color: *color,
+            (
+                AnimatedPrimitive::Basic(
+                    position_buffer,
+                    normal_buffer,
+                    _,
+                    _,
+                    color,
+                    metalness,
+                    roughness,
+                ),
+                None,
+            ) => {
+                let vertex_count = position_buffer.len() as u32;
+                let vertex_uniform = self.uniform_buffer.allocate_sized().unwrap();
+                *vertex_uniform.write().unwrap() = basic_vertex_shader::UniformBufferObject {
                     view_proj,
-                    light_position,
+                    light_position: light_position.into(),
+                    camera_position,
+                };
+                let fragment_uniform = self.uniform_buffer.allocate_sized().unwrap();
+                *fragment_uniform.write().unwrap() = basic_fragment_shader::UniformBufferObject {
+                    color: *color,
+                    metalness: *metalness,
+                    roughness: *roughness,
                 };
                 let layout = self.pipelines.basic.layout().set_layouts().first().unwrap();
                 let descriptor_set = PersistentDescriptorSet::new(
                     &self.allocators.descriptor_set,
                     layout.clone(),
-                    [WriteDescriptorSet::buffer(0, uniform_subbuffer)],
+                    [
+                        WriteDescriptorSet::buffer(0, vertex_uniform),
+                        WriteDescriptorSet::buffer(1, fragment_uniform),
+                    ],
                     [],
                 )
                 .unwrap();
@@ -363,7 +422,7 @@ impl Engine {
                         (position_buffer.clone(), normal_buffer.clone(), item_pos),
                     )
                     .unwrap()
-                    .draw(position_buffer.len() as u32, instance_count as u32, 0, 0)
+                    .draw(vertex_count, instance_count, 0, 0)
                     .unwrap();
             }
             (
@@ -374,14 +433,26 @@ impl Engine {
                     texture,
                     _,
                     _,
+                    color,
+                    metalness,
+                    roughness,
                 ),
                 None,
             ) => {
-                let uniform_subbuffer = self.uniform_buffer.allocate_sized().unwrap();
-                *uniform_subbuffer.write().unwrap() = textured_vertex_shader::UniformBufferObject {
+                let vertex_count = position_buffer.len() as u32;
+                let vertex_uniform = self.uniform_buffer.allocate_sized().unwrap();
+                *vertex_uniform.write().unwrap() = textured_vertex_shader::UniformBufferObject {
                     view_proj,
-                    light_position,
+                    light_position: light_position.into(),
+                    camera_position,
                 };
+                let fragment_uniform = self.uniform_buffer.allocate_sized().unwrap();
+                *fragment_uniform.write().unwrap() =
+                    textured_fragment_shader::UniformBufferObject {
+                        color: *color,
+                        metalness: *metalness,
+                        roughness: *roughness,
+                    };
                 let layout = self
                     .pipelines
                     .textured
@@ -393,9 +464,10 @@ impl Engine {
                     &self.allocators.descriptor_set,
                     layout.clone(),
                     [
-                        WriteDescriptorSet::buffer(0, uniform_subbuffer),
+                        WriteDescriptorSet::buffer(0, vertex_uniform),
+                        WriteDescriptorSet::buffer(1, fragment_uniform),
                         WriteDescriptorSet::image_view_sampler(
-                            1,
+                            3,
                             texture.clone(),
                             self.sampler.clone(),
                         ),
@@ -423,11 +495,19 @@ impl Engine {
                         ),
                     )
                     .unwrap()
-                    .draw(position_buffer.len() as u32, instance_count as u32, 0, 0)
+                    .draw(vertex_count, instance_count, 0, 0)
                     .unwrap();
             }
             (
-                AnimatedPrimitive::Basic(position_buffer, normal_buffer, color, joints, weights),
+                AnimatedPrimitive::Basic(
+                    position_buffer,
+                    normal_buffer,
+                    joints,
+                    weights,
+                    color,
+                    metalness,
+                    roughness,
+                ),
                 Some(pose),
             ) => {
                 let pose_buffer = Buffer::from_iter(
@@ -444,14 +524,21 @@ impl Engine {
                     pose.iter().map(|pose| pose.to_homogeneous()),
                 )
                 .unwrap();
-                let uniform_subbuffer = self.uniform_buffer.allocate_sized().unwrap();
-                *uniform_subbuffer.write().unwrap() =
+                let vertex_count = position_buffer.len() as u32;
+                let vertex_uniform = self.uniform_buffer.allocate_sized().unwrap();
+                *vertex_uniform.write().unwrap() =
                     basic_animated_vertex_shader::UniformBufferObject {
-                        color: *color,
                         view_proj,
-                        transform_length: (pose_buffer.len() / item_pos.len()) as u32,
-                        light_position,
+                        light_position: light_position.into(),
+                        camera_position,
+                        transform_length: pose_buffer.len() as u32 / instance_count,
                     };
+                let fragment_uniform = self.uniform_buffer.allocate_sized().unwrap();
+                *fragment_uniform.write().unwrap() = basic_fragment_shader::UniformBufferObject {
+                    color: *color,
+                    metalness: *metalness,
+                    roughness: *roughness,
+                };
                 let layout = self
                     .pipelines
                     .basic_animated
@@ -463,7 +550,8 @@ impl Engine {
                     &self.allocators.descriptor_set,
                     layout.clone(),
                     [
-                        WriteDescriptorSet::buffer(0, uniform_subbuffer),
+                        WriteDescriptorSet::buffer(0, vertex_uniform),
+                        WriteDescriptorSet::buffer(1, fragment_uniform),
                         WriteDescriptorSet::buffer(2, pose_buffer),
                     ],
                     [],
@@ -490,7 +578,7 @@ impl Engine {
                         ),
                     )
                     .unwrap()
-                    .draw(position_buffer.len() as u32, instance_count as u32, 0, 0)
+                    .draw(vertex_count, instance_count, 0, 0)
                     .unwrap();
             }
 
@@ -502,6 +590,9 @@ impl Engine {
                     texture,
                     joints,
                     weights,
+                    color,
+                    metalness,
+                    roughness,
                 ),
                 Some(pose),
             ) => {
@@ -519,13 +610,21 @@ impl Engine {
                     pose.iter().map(|pose| pose.to_homogeneous()),
                 )
                 .unwrap();
-
-                let uniform_subbuffer = self.uniform_buffer.allocate_sized().unwrap();
-                *uniform_subbuffer.write().unwrap() =
+                let vertex_count = position_buffer.len() as u32;
+                let vertex_uniform = self.uniform_buffer.allocate_sized().unwrap();
+                *vertex_uniform.write().unwrap() =
                     textured_animated_vertex_shader::UniformBufferObject {
                         view_proj,
-                        transform_length: (pose_buffer.len() / item_pos.len()) as u32,
-                        light_position,
+                        light_position: light_position.into(),
+                        camera_position,
+                        transform_length: pose_buffer.len() as u32 / instance_count,
+                    };
+                let fragment_uniform = self.uniform_buffer.allocate_sized().unwrap();
+                *fragment_uniform.write().unwrap() =
+                    textured_fragment_shader::UniformBufferObject {
+                        color: *color,
+                        metalness: *metalness,
+                        roughness: *roughness,
                     };
                 let layout = self
                     .pipelines
@@ -538,13 +637,14 @@ impl Engine {
                     &self.allocators.descriptor_set,
                     layout.clone(),
                     [
-                        WriteDescriptorSet::buffer(0, uniform_subbuffer),
+                        WriteDescriptorSet::buffer(0, vertex_uniform),
+                        WriteDescriptorSet::buffer(3, fragment_uniform),
+                        WriteDescriptorSet::buffer(2, pose_buffer),
                         WriteDescriptorSet::image_view_sampler(
                             1,
                             texture.clone(),
                             self.sampler.clone(),
                         ),
-                        WriteDescriptorSet::buffer(2, pose_buffer),
                     ],
                     [],
                 )
@@ -571,7 +671,7 @@ impl Engine {
                         ),
                     )
                     .unwrap()
-                    .draw(position_buffer.len() as u32, instance_count as u32, 0, 0)
+                    .draw(vertex_count, instance_count, 0, 0)
                     .unwrap();
             }
         }
@@ -598,16 +698,10 @@ impl Drawer for Engine {
             self.recreate_swapchain = true;
             return;
         }
-        let view_proj =
-            camera_transform
-                .reverse()
-                .project_perspective(FRAC_PI_2, 16.0 / 9.0, 0.1, 100.0);
-
         let mut builder = self.init_command_buffer(image_i);
         for displayed_item in display_request {
             match *displayed_item {
                 DisplayRequest::In3D(asset, item_pos, pose_option) => {
-                    let instance_count = item_pos.len();
                     let item_pos = Buffer::from_iter(
                         self.allocators.memory.clone(),
                         BufferCreateInfo {
@@ -627,10 +721,9 @@ impl Drawer for Engine {
                             for primive in still_primitives.iter() {
                                 self.add_still_primitive_to_command_buffer(
                                     primive,
-                                    view_proj,
+                                    camera_transform,
                                     item_pos.clone(),
                                     light_position,
-                                    instance_count,
                                     &mut builder,
                                 );
                             }
@@ -639,11 +732,10 @@ impl Drawer for Engine {
                             for primive in animated_primitives.iter() {
                                 self.add_animated_primitive_to_command_buffer(
                                     primive,
-                                    view_proj,
+                                    camera_transform,
                                     item_pos.clone(),
                                     pose_option,
                                     light_position,
-                                    instance_count,
                                     &mut builder,
                                 );
                             }

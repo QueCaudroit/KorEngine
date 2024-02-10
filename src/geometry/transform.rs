@@ -301,7 +301,7 @@ impl Transform {
         }
     }
 
-    /// Only works for non-scaled transforms
+    /// WARNING: Only works for non-scaled transforms
     pub fn reverse(&self) -> Self {
         Transform {
             rotation_scale: [
