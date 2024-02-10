@@ -9,7 +9,7 @@ use vulkano::{
             depth_stencil::{DepthState, DepthStencilState},
             input_assembly::InputAssemblyState,
             multisample::MultisampleState,
-            rasterization::RasterizationState,
+            rasterization::{CullMode, RasterizationState},
             vertex_input::{Vertex, VertexDefinition},
             viewport::{Viewport, ViewportState},
             GraphicsPipelineCreateInfo,
@@ -147,7 +147,10 @@ fn build_basic_pipeline(
                 .collect(),
                 ..Default::default()
             }),
-            rasterization_state: Some(RasterizationState::default()),
+            rasterization_state: Some(RasterizationState {
+                cull_mode: CullMode::Back,
+                ..Default::default()
+            }),
             depth_stencil_state: Some(DepthStencilState {
                 depth: Some(DepthState::simple()),
                 ..Default::default()
@@ -211,7 +214,10 @@ fn build_basic_animated_pipeline(
                 .collect(),
                 ..Default::default()
             }),
-            rasterization_state: Some(RasterizationState::default()),
+            rasterization_state: Some(RasterizationState {
+                cull_mode: CullMode::Back,
+                ..Default::default()
+            }),
             depth_stencil_state: Some(DepthStencilState {
                 depth: Some(DepthState::simple()),
                 ..Default::default()
@@ -273,7 +279,10 @@ fn build_textured_pipeline(
                 .collect(),
                 ..Default::default()
             }),
-            rasterization_state: Some(RasterizationState::default()),
+            rasterization_state: Some(RasterizationState {
+                cull_mode: CullMode::Back,
+                ..Default::default()
+            }),
             depth_stencil_state: Some(DepthStencilState {
                 depth: Some(DepthState::simple()),
                 ..Default::default()
@@ -340,7 +349,10 @@ fn build_textured_animated_pipeline(
                 .collect(),
                 ..Default::default()
             }),
-            rasterization_state: Some(RasterizationState::default()),
+            rasterization_state: Some(RasterizationState {
+                cull_mode: CullMode::Back,
+                ..Default::default()
+            }),
             depth_stencil_state: Some(DepthStencilState {
                 depth: Some(DepthState::simple()),
                 ..Default::default()
