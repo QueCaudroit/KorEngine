@@ -63,11 +63,27 @@ pub struct Normal {
     pub normal: [f32; 3],
 }
 
+pub struct BaseVertex {
+    pub positions: Subbuffer<[Position]>,
+    pub normals: Subbuffer<[Normal]>,
+}
+
 #[derive(BufferContents, Vertex)]
 #[repr(C)]
 pub struct TextureCoord {
     #[format(R32G32_SFLOAT)]
     pub tex_coords_in: [f32; 2],
+}
+
+pub struct Texture {
+    pub coordinates: Subbuffer<[TextureCoord]>,
+    pub image: Arc<ImageView>,
+}
+
+pub struct PBRFactors {
+    pub color: [f32; 4],
+    pub metalness: f32,
+    pub roughness: f32,
 }
 
 #[derive(BufferContents, Vertex)]
@@ -96,6 +112,11 @@ pub struct Weight {
 pub struct Joint {
     #[format(R32G32B32A32_UINT)]
     pub joints: [u32; 4],
+}
+
+pub struct Skin {
+    pub joints: Subbuffer<[Joint]>,
+    pub weights: Subbuffer<[Weight]>,
 }
 
 pub struct Engine {
@@ -241,8 +262,8 @@ impl Engine {
         let camera_position = camera_transform.translation;
         let instance_count = item_pos.len() as u32;
         match primitive {
-            StillPrimitive::Basic(position_buffer, normal_buffer, color, metalness, roughness) => {
-                let vertex_count = position_buffer.len() as u32;
+            StillPrimitive::Basic(vertex, pbr) => {
+                let vertex_count = vertex.positions.len() as u32;
                 let vertex_uniform = self.uniform_buffer.allocate_sized().unwrap();
                 *vertex_uniform.write().unwrap() = basic_vertex_shader::UniformBufferObject {
                     view_proj,
@@ -251,9 +272,9 @@ impl Engine {
                 };
                 let fragment_uniform = self.uniform_buffer.allocate_sized().unwrap();
                 *fragment_uniform.write().unwrap() = basic_fragment_shader::UniformBufferObject {
-                    color: *color,
-                    metalness: *metalness,
-                    roughness: *roughness,
+                    color: pbr.color,
+                    metalness: pbr.metalness,
+                    roughness: pbr.roughness,
                 };
                 let layout = self.pipelines.basic.layout().set_layouts().first().unwrap();
                 let descriptor_set = PersistentDescriptorSet::new(
@@ -278,22 +299,14 @@ impl Engine {
                     .unwrap()
                     .bind_vertex_buffers(
                         0,
-                        (position_buffer.clone(), normal_buffer.clone(), item_pos),
+                        (vertex.positions.clone(), vertex.normals.clone(), item_pos),
                     )
                     .unwrap()
                     .draw(vertex_count, instance_count, 0, 0)
                     .unwrap();
             }
-            StillPrimitive::Textured(
-                position_buffer,
-                normal_buffer,
-                texture_coord,
-                texture,
-                color,
-                metalness,
-                roughness,
-            ) => {
-                let vertex_count = position_buffer.len() as u32;
+            StillPrimitive::Textured(vertex, texture, pbr) => {
+                let vertex_count = vertex.positions.len() as u32;
                 let vertex_uniform = self.uniform_buffer.allocate_sized().unwrap();
                 *vertex_uniform.write().unwrap() = textured_vertex_shader::UniformBufferObject {
                     view_proj,
@@ -303,9 +316,9 @@ impl Engine {
                 let fragment_uniform = self.uniform_buffer.allocate_sized().unwrap();
                 *fragment_uniform.write().unwrap() =
                     textured_fragment_shader::UniformBufferObject {
-                        color: *color,
-                        metalness: *metalness,
-                        roughness: *roughness,
+                        color: pbr.color,
+                        metalness: pbr.metalness,
+                        roughness: pbr.roughness,
                     };
                 let layout = self
                     .pipelines
@@ -322,7 +335,7 @@ impl Engine {
                         WriteDescriptorSet::buffer(1, fragment_uniform),
                         WriteDescriptorSet::image_view_sampler(
                             3,
-                            texture.clone(),
+                            texture.image.clone(),
                             self.sampler.clone(),
                         ),
                     ],
@@ -342,9 +355,9 @@ impl Engine {
                     .bind_vertex_buffers(
                         0,
                         (
-                            position_buffer.clone(),
-                            normal_buffer.clone(),
-                            texture_coord.clone(),
+                            vertex.positions.clone(),
+                            vertex.normals.clone(),
+                            texture.coordinates.clone(),
                             item_pos,
                         ),
                     )
@@ -371,19 +384,8 @@ impl Engine {
         let camera_position = camera_transform.translation;
         let instance_count = item_pos.len() as u32;
         match (primitive, pose_option) {
-            (
-                AnimatedPrimitive::Basic(
-                    position_buffer,
-                    normal_buffer,
-                    _,
-                    _,
-                    color,
-                    metalness,
-                    roughness,
-                ),
-                None,
-            ) => {
-                let vertex_count = position_buffer.len() as u32;
+            (AnimatedPrimitive::Basic(vertex, _, pbr), None) => {
+                let vertex_count = vertex.positions.len() as u32;
                 let vertex_uniform = self.uniform_buffer.allocate_sized().unwrap();
                 *vertex_uniform.write().unwrap() = basic_vertex_shader::UniformBufferObject {
                     view_proj,
@@ -392,9 +394,9 @@ impl Engine {
                 };
                 let fragment_uniform = self.uniform_buffer.allocate_sized().unwrap();
                 *fragment_uniform.write().unwrap() = basic_fragment_shader::UniformBufferObject {
-                    color: *color,
-                    metalness: *metalness,
-                    roughness: *roughness,
+                    color: pbr.color,
+                    metalness: pbr.metalness,
+                    roughness: pbr.roughness,
                 };
                 let layout = self.pipelines.basic.layout().set_layouts().first().unwrap();
                 let descriptor_set = PersistentDescriptorSet::new(
@@ -419,27 +421,14 @@ impl Engine {
                     .unwrap()
                     .bind_vertex_buffers(
                         0,
-                        (position_buffer.clone(), normal_buffer.clone(), item_pos),
+                        (vertex.positions.clone(), vertex.normals.clone(), item_pos),
                     )
                     .unwrap()
                     .draw(vertex_count, instance_count, 0, 0)
                     .unwrap();
             }
-            (
-                AnimatedPrimitive::Textured(
-                    position_buffer,
-                    normal_buffer,
-                    texture_coord,
-                    texture,
-                    _,
-                    _,
-                    color,
-                    metalness,
-                    roughness,
-                ),
-                None,
-            ) => {
-                let vertex_count = position_buffer.len() as u32;
+            (AnimatedPrimitive::Textured(vertex, texture, _, pbr), None) => {
+                let vertex_count = vertex.positions.len() as u32;
                 let vertex_uniform = self.uniform_buffer.allocate_sized().unwrap();
                 *vertex_uniform.write().unwrap() = textured_vertex_shader::UniformBufferObject {
                     view_proj,
@@ -449,9 +438,9 @@ impl Engine {
                 let fragment_uniform = self.uniform_buffer.allocate_sized().unwrap();
                 *fragment_uniform.write().unwrap() =
                     textured_fragment_shader::UniformBufferObject {
-                        color: *color,
-                        metalness: *metalness,
-                        roughness: *roughness,
+                        color: pbr.color,
+                        metalness: pbr.metalness,
+                        roughness: pbr.roughness,
                     };
                 let layout = self
                     .pipelines
@@ -468,7 +457,7 @@ impl Engine {
                         WriteDescriptorSet::buffer(1, fragment_uniform),
                         WriteDescriptorSet::image_view_sampler(
                             3,
-                            texture.clone(),
+                            texture.image.clone(),
                             self.sampler.clone(),
                         ),
                     ],
@@ -488,9 +477,9 @@ impl Engine {
                     .bind_vertex_buffers(
                         0,
                         (
-                            position_buffer.clone(),
-                            normal_buffer.clone(),
-                            texture_coord.clone(),
+                            vertex.positions.clone(),
+                            vertex.normals.clone(),
+                            texture.coordinates.clone(),
                             item_pos,
                         ),
                     )
@@ -498,18 +487,7 @@ impl Engine {
                     .draw(vertex_count, instance_count, 0, 0)
                     .unwrap();
             }
-            (
-                AnimatedPrimitive::Basic(
-                    position_buffer,
-                    normal_buffer,
-                    joints,
-                    weights,
-                    color,
-                    metalness,
-                    roughness,
-                ),
-                Some(pose),
-            ) => {
+            (AnimatedPrimitive::Basic(vertex, skin, pbr), Some(pose)) => {
                 let pose_buffer = Buffer::from_iter(
                     self.allocators.memory.clone(),
                     BufferCreateInfo {
@@ -524,7 +502,7 @@ impl Engine {
                     pose.iter().map(|pose| pose.to_homogeneous()),
                 )
                 .unwrap();
-                let vertex_count = position_buffer.len() as u32;
+                let vertex_count = vertex.positions.len() as u32;
                 let vertex_uniform = self.uniform_buffer.allocate_sized().unwrap();
                 *vertex_uniform.write().unwrap() =
                     basic_animated_vertex_shader::UniformBufferObject {
@@ -535,9 +513,9 @@ impl Engine {
                     };
                 let fragment_uniform = self.uniform_buffer.allocate_sized().unwrap();
                 *fragment_uniform.write().unwrap() = basic_fragment_shader::UniformBufferObject {
-                    color: *color,
-                    metalness: *metalness,
-                    roughness: *roughness,
+                    color: pbr.color,
+                    metalness: pbr.metalness,
+                    roughness: pbr.roughness,
                 };
                 let layout = self
                     .pipelines
@@ -570,11 +548,11 @@ impl Engine {
                     .bind_vertex_buffers(
                         0,
                         (
-                            position_buffer.clone(),
-                            normal_buffer.clone(),
+                            vertex.positions.clone(),
+                            vertex.normals.clone(),
                             item_pos,
-                            weights.clone(),
-                            joints.clone(),
+                            skin.weights.clone(),
+                            skin.joints.clone(),
                         ),
                     )
                     .unwrap()
@@ -582,20 +560,7 @@ impl Engine {
                     .unwrap();
             }
 
-            (
-                AnimatedPrimitive::Textured(
-                    position_buffer,
-                    normal_buffer,
-                    texture_coord,
-                    texture,
-                    joints,
-                    weights,
-                    color,
-                    metalness,
-                    roughness,
-                ),
-                Some(pose),
-            ) => {
+            (AnimatedPrimitive::Textured(vertex, texture, skin, pbr), Some(pose)) => {
                 let pose_buffer = Buffer::from_iter(
                     self.allocators.memory.clone(),
                     BufferCreateInfo {
@@ -610,7 +575,7 @@ impl Engine {
                     pose.iter().map(|pose| pose.to_homogeneous()),
                 )
                 .unwrap();
-                let vertex_count = position_buffer.len() as u32;
+                let vertex_count = vertex.positions.len() as u32;
                 let vertex_uniform = self.uniform_buffer.allocate_sized().unwrap();
                 *vertex_uniform.write().unwrap() =
                     textured_animated_vertex_shader::UniformBufferObject {
@@ -622,9 +587,9 @@ impl Engine {
                 let fragment_uniform = self.uniform_buffer.allocate_sized().unwrap();
                 *fragment_uniform.write().unwrap() =
                     textured_fragment_shader::UniformBufferObject {
-                        color: *color,
-                        metalness: *metalness,
-                        roughness: *roughness,
+                        color: pbr.color,
+                        metalness: pbr.metalness,
+                        roughness: pbr.roughness,
                     };
                 let layout = self
                     .pipelines
@@ -642,7 +607,7 @@ impl Engine {
                         WriteDescriptorSet::buffer(2, pose_buffer),
                         WriteDescriptorSet::image_view_sampler(
                             1,
-                            texture.clone(),
+                            texture.image.clone(),
                             self.sampler.clone(),
                         ),
                     ],
@@ -662,12 +627,12 @@ impl Engine {
                     .bind_vertex_buffers(
                         0,
                         (
-                            position_buffer.clone(),
-                            normal_buffer.clone(),
-                            texture_coord.clone(),
+                            vertex.positions.clone(),
+                            vertex.normals.clone(),
+                            texture.coordinates.clone(),
                             item_pos,
-                            weights.clone(),
-                            joints.clone(),
+                            skin.weights.clone(),
+                            skin.joints.clone(),
                         ),
                     )
                     .unwrap()

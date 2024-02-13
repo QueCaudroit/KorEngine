@@ -16,7 +16,7 @@ layout(location = 3) in vec3 normal_direction;
 layout(location = 0) out vec4 f_color;
 
 const float lambertian_diffuse = 0.31830988618; // 1/pi
-const float ambient_light = 0.1;
+const float ambient_light = 0.01;
 
 void main() {
     vec4 tex_color = texture(tex, tex_coords) * ubo.color;

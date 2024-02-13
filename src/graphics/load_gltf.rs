@@ -1,6 +1,9 @@
-use std::sync::Arc;
-
-use gltf::{image::Data, mesh::Reader, Mesh};
+use gltf::{
+    animation::{util::ReadOutputs, Interpolation},
+    image::Data,
+    mesh::Reader,
+    Node,
+};
 use vulkano::{
     buffer::{Buffer, BufferCreateInfo, BufferUsage, Subbuffer},
     command_buffer::{
@@ -14,11 +17,14 @@ use vulkano::{
 };
 
 use crate::{
-    geometry::Transform,
+    geometry::{Interpolable, Transform},
     graphics::{
         animation::{AnimatedProperty, Animation, AnimationChannel, Sampler},
         animator::Animator,
-        engine::{Engine, Joint, Normal, Position, TextureCoord, Weight, IMAGE_FORMAT},
+        engine::{
+            BaseVertex, Engine, Joint, Normal, PBRFactors, Position, Skin, Texture, TextureCoord,
+            Weight, IMAGE_FORMAT,
+        },
         format_converter::convert_texture,
     },
     Loader,
@@ -30,45 +36,13 @@ pub enum Asset {
 }
 
 pub enum AnimatedPrimitive {
-    Basic(
-        Subbuffer<[Position]>,
-        Subbuffer<[Normal]>,
-        Subbuffer<[Joint]>,
-        Subbuffer<[Weight]>,
-        [f32; 4],
-        f32,
-        f32,
-    ),
-    Textured(
-        Subbuffer<[Position]>,
-        Subbuffer<[Normal]>,
-        Subbuffer<[TextureCoord]>,
-        Arc<ImageView>,
-        Subbuffer<[Joint]>,
-        Subbuffer<[Weight]>,
-        [f32; 4],
-        f32,
-        f32,
-    ),
+    Basic(BaseVertex, Skin, PBRFactors),
+    Textured(BaseVertex, Texture, Skin, PBRFactors),
 }
 
 pub enum StillPrimitive {
-    Basic(
-        Subbuffer<[Position]>,
-        Subbuffer<[Normal]>,
-        [f32; 4],
-        f32,
-        f32,
-    ),
-    Textured(
-        Subbuffer<[Position]>,
-        Subbuffer<[Normal]>,
-        Subbuffer<[TextureCoord]>,
-        Arc<ImageView>,
-        [f32; 4],
-        f32,
-        f32,
-    ),
+    Basic(BaseVertex, PBRFactors),
+    Textured(BaseVertex, Texture, PBRFactors),
 }
 
 impl Loader for Engine {
@@ -84,28 +58,27 @@ impl Loader for Engine {
             .unwrap();
         let mesh = node.mesh().unwrap();
         match node.skin() {
-            None => Asset::Still(self.load_still_primitive(mesh, gltf_buffers, gltf_images)),
+            None => Asset::Still(
+                mesh.primitives()
+                    .map(|primitive| {
+                        self.load_still_primitive(&primitive, &gltf_buffers, &gltf_images)
+                    })
+                    .collect(),
+            ),
             Some(skin) => {
-                let joints: Vec<_> = skin.joints().map(|n| n.index()).collect();
-                let inverse_matrices: Option<Vec<_>> = skin
-                    .reader(|buffer| Some(&gltf_buffers[buffer.index()]))
-                    .read_inverse_bind_matrices()
-                    .map(|i| i.map(Transform::from_homogeneous).collect());
-                let (mut animator, global_mapping, joint_mapping) =
-                    Animator::new(&all_nodes, &joints, inverse_matrices);
-                for animation in gltf_document.animations() {
-                    let mut channels = Vec::new();
-                    for gltf_channel in animation.channels() {
-                        if let Some(channel) =
-                            load_channel(&gltf_channel, &joints, &global_mapping, &gltf_buffers)
-                        {
-                            channels.push(channel);
-                        }
-                    }
-                    animator.animations.push(Animation { channels });
-                }
+                let (animator, joint_mapping) =
+                    load_animator(skin, &all_nodes, &gltf_document, &gltf_buffers);
                 Asset::Animated(
-                    self.load_animated_primitive(mesh, gltf_buffers, gltf_images, joint_mapping),
+                    mesh.primitives()
+                        .map(|primitive| {
+                            self.load_animated_primitive(
+                                &primitive,
+                                &gltf_buffers,
+                                &gltf_images,
+                                &joint_mapping,
+                            )
+                        })
+                        .collect(),
                     animator,
                 )
             }
@@ -116,105 +89,75 @@ impl Loader for Engine {
 impl Engine {
     fn load_animated_primitive(
         &self,
-        mesh: Mesh,
-        gltf_buffers: Vec<gltf::buffer::Data>,
-        gltf_images: Vec<gltf::image::Data>,
-        mapping: Vec<usize>,
-    ) -> Vec<AnimatedPrimitive> {
-        let mut primitives = Vec::new();
-        for primitive in mesh.primitives() {
-            let reader = primitive.reader(|buffer| Some(&gltf_buffers[buffer.index()]));
-            let index_buffer_option = self.load_index_buffer(&reader);
-            let vertex_buffer = self.load_vertex(&reader, &index_buffer_option);
-            let vertex_len = vertex_buffer.len();
-            let normal_buffer = self.load_normal(&reader, &vertex_buffer, &index_buffer_option);
-            let (joints_buffer, weight_buffer) =
-                self.load_joints(&reader, &index_buffer_option, vertex_len, &mapping);
-            let texture_option = self.load_texture(
-                &primitive,
-                &reader,
-                &gltf_images,
-                vertex_len,
-                &index_buffer_option,
-            );
-            let material = primitive.material().pbr_metallic_roughness();
-            primitives.push(match texture_option {
-                Some((tex_coord, image)) => AnimatedPrimitive::Textured(
-                    vertex_buffer,
-                    normal_buffer,
-                    tex_coord,
-                    image,
-                    joints_buffer,
-                    weight_buffer,
-                    material.base_color_factor(),
-                    material.metallic_factor(),
-                    material.roughness_factor(),
-                ),
-                None => AnimatedPrimitive::Basic(
-                    vertex_buffer,
-                    normal_buffer,
-                    joints_buffer,
-                    weight_buffer,
-                    material.base_color_factor(),
-                    material.metallic_factor(),
-                    material.roughness_factor(),
-                ),
-            })
+        primitive: &gltf::Primitive,
+        gltf_buffers: &[gltf::buffer::Data],
+        gltf_images: &[gltf::image::Data],
+        mapping: &[usize],
+    ) -> AnimatedPrimitive {
+        let reader = primitive.reader(|buffer| Some(&gltf_buffers[buffer.index()]));
+        let index_buffer_option = self.load_index_buffer(&reader);
+        let vertex = self.load_base_vertex(&reader, &index_buffer_option);
+        let vertex_len = vertex.positions.len();
+        let skin = self.load_joints(&reader, &index_buffer_option, vertex_len, mapping);
+        let texture_option = self.load_texture(
+            primitive,
+            &reader,
+            gltf_images,
+            vertex_len,
+            &index_buffer_option,
+        );
+        let pbr = load_pbr_factors(primitive);
+        match texture_option {
+            Some(texture) => AnimatedPrimitive::Textured(vertex, texture, skin, pbr),
+            None => AnimatedPrimitive::Basic(vertex, skin, pbr),
         }
-        primitives
     }
 
     fn load_still_primitive(
         &self,
-        mesh: Mesh,
-        gltf_buffers: Vec<gltf::buffer::Data>,
-        gltf_images: Vec<gltf::image::Data>,
-    ) -> Vec<StillPrimitive> {
-        let mut primitives = Vec::new();
-        for primitive in mesh.primitives() {
-            let reader = primitive.reader(|buffer| Some(&gltf_buffers[buffer.index()]));
-            let index_buffer_option = self.load_index_buffer(&reader);
-            let vertex_buffer = self.load_vertex(&reader, &index_buffer_option);
-            let normal_buffer = self.load_normal(&reader, &vertex_buffer, &index_buffer_option);
-            let texture_option = self.load_texture(
-                &primitive,
-                &reader,
-                &gltf_images,
-                vertex_buffer.len(),
-                &index_buffer_option,
-            );
-            let material = primitive.material().pbr_metallic_roughness();
-            primitives.push(match texture_option {
-                Some((tex_coord, image)) => StillPrimitive::Textured(
-                    vertex_buffer,
-                    normal_buffer,
-                    tex_coord,
-                    image,
-                    material.base_color_factor(),
-                    material.metallic_factor(),
-                    material.roughness_factor(),
-                ),
-                None => StillPrimitive::Basic(
-                    vertex_buffer,
-                    normal_buffer,
-                    material.base_color_factor(),
-                    material.metallic_factor(),
-                    material.roughness_factor(),
-                ),
-            })
+        primitive: &gltf::Primitive,
+        gltf_buffers: &[gltf::buffer::Data],
+        gltf_images: &[gltf::image::Data],
+    ) -> StillPrimitive {
+        let reader = primitive.reader(|buffer| Some(&gltf_buffers[buffer.index()]));
+        let index_buffer_option = self.load_index_buffer(&reader);
+        let vertex = self.load_base_vertex(&reader, &index_buffer_option);
+        let texture_option = self.load_texture(
+            primitive,
+            &reader,
+            gltf_images,
+            vertex.positions.len(),
+            &index_buffer_option,
+        );
+        let pbr = load_pbr_factors(primitive);
+        match texture_option {
+            Some(texture) => StillPrimitive::Textured(vertex, texture, pbr),
+            None => StillPrimitive::Basic(vertex, pbr),
         }
-        primitives
     }
 }
 
 impl<'a, 's> Engine {
+    fn load_base_vertex(
+        &self,
+        reader: &Reader<'a, 's, impl Clone + Fn(gltf::Buffer<'a>) -> Option<&'s [u8]>>,
+        index_buffer_option: &Option<Subbuffer<[u32]>>,
+    ) -> BaseVertex {
+        let vertex_buffer = self.load_vertex(reader, index_buffer_option);
+        let normal_buffer = self.load_normal(reader, &vertex_buffer, index_buffer_option);
+        BaseVertex {
+            positions: vertex_buffer,
+            normals: normal_buffer,
+        }
+    }
+
     fn load_joints(
         &self,
         reader: &Reader<'a, 's, impl Clone + Fn(gltf::Buffer<'a>) -> Option<&'s [u8]>>,
         index_buffer_option: &Option<Subbuffer<[u32]>>,
         vertex_len: u64,
         mapping: &[usize],
-    ) -> (Subbuffer<[Joint]>, Subbuffer<[Weight]>) {
+    ) -> Skin {
         let mapping: Vec<_> = mapping
             .iter()
             .map(|&i| if i != usize::MAX { i as u32 } else { 0 })
@@ -393,7 +336,10 @@ impl<'a, 's> Engine {
             .then_signal_fence_and_flush()
             .unwrap();
         future.wait(None).unwrap();
-        (joints_buffer, weight_buffer)
+        Skin {
+            joints: joints_buffer,
+            weights: weight_buffer,
+        }
     }
 
     fn load_normal(
@@ -650,7 +596,7 @@ impl<'a, 's> Engine {
         images: &[Data],
         vertex_len: u64,
         index_buffer_option: &Option<Subbuffer<[u32]>>,
-    ) -> Option<(Subbuffer<[TextureCoord]>, Arc<ImageView>)> {
+    ) -> Option<Texture> {
         let pbr = primitive.material().pbr_metallic_roughness();
         let texture_option = pbr.base_color_texture();
         let texture = match texture_option {
@@ -790,7 +736,10 @@ impl<'a, 's> Engine {
             .then_signal_fence_and_flush()
             .unwrap();
         future.wait(None).unwrap();
-        Some((tex_coord, ImageView::new_default(image).unwrap()))
+        Some(Texture {
+            image: ImageView::new_default(image).unwrap(),
+            coordinates: tex_coord,
+        })
     }
 }
 
@@ -813,82 +762,19 @@ fn load_channel(
     let t_max = timestamps[timestamps.len() - 1];
     let output = reader.read_outputs().unwrap();
     let interpolation = sampler.interpolation();
+    let frame_count = timestamps.len();
     let animated_property = match output {
-        gltf::animation::util::ReadOutputs::Rotations(rotations) => match interpolation {
-            gltf::animation::Interpolation::Step => AnimatedProperty::Rotation(Sampler::Step(
-                rotations.into_f32().map(|q| q.into()).collect(),
-            )),
-            gltf::animation::Interpolation::Linear => AnimatedProperty::Rotation(Sampler::Linear(
-                rotations.into_f32().map(|q| q.into()).collect(),
-            )),
-            gltf::animation::Interpolation::CubicSpline => {
-                let mut rotation_iter = rotations.into_f32().map(|q| q.into());
-                let frame_count = timestamps.len();
-                let mut in_tangents = Vec::with_capacity(frame_count);
-                let mut values = Vec::with_capacity(frame_count);
-                let mut out_tangents = Vec::with_capacity(frame_count);
-                for _ in 0..frame_count {
-                    in_tangents.push(rotation_iter.next().unwrap());
-                }
-                for _ in 0..frame_count {
-                    values.push(rotation_iter.next().unwrap());
-                }
-                for _ in 0..frame_count {
-                    out_tangents.push(rotation_iter.next().unwrap());
-                }
-                AnimatedProperty::Rotation(Sampler::Cubic(in_tangents, values, out_tangents))
-            }
-        },
-        gltf::animation::util::ReadOutputs::Translations(translations) => match interpolation {
-            gltf::animation::Interpolation::Step => AnimatedProperty::Translation(Sampler::Step(
-                translations.map(|t| t.into()).collect(),
-            )),
-            gltf::animation::Interpolation::Linear => AnimatedProperty::Translation(
-                Sampler::Linear(translations.map(|t| t.into()).collect()),
-            ),
-            gltf::animation::Interpolation::CubicSpline => {
-                let mut translation_iter = translations.map(|t| t.into());
-                let frame_count = timestamps.len();
-                let mut in_tangents = Vec::with_capacity(frame_count);
-                let mut values = Vec::with_capacity(frame_count);
-                let mut out_tangents = Vec::with_capacity(frame_count);
-                for _ in 0..frame_count {
-                    in_tangents.push(translation_iter.next().unwrap());
-                }
-                for _ in 0..frame_count {
-                    values.push(translation_iter.next().unwrap());
-                }
-                for _ in 0..frame_count {
-                    out_tangents.push(translation_iter.next().unwrap());
-                }
-                AnimatedProperty::Translation(Sampler::Cubic(in_tangents, values, out_tangents))
-            }
-        },
-        gltf::animation::util::ReadOutputs::Scales(scales) => match interpolation {
-            gltf::animation::Interpolation::Step => {
-                AnimatedProperty::Scale(Sampler::Step(scales.map(|t| t.into()).collect()))
-            }
-            gltf::animation::Interpolation::Linear => {
-                AnimatedProperty::Scale(Sampler::Linear(scales.map(|t| t.into()).collect()))
-            }
-            gltf::animation::Interpolation::CubicSpline => {
-                let mut scale_iter = scales.map(|t| t.into());
-                let frame_count = timestamps.len();
-                let mut in_tangents = Vec::with_capacity(frame_count);
-                let mut values = Vec::with_capacity(frame_count);
-                let mut out_tangents = Vec::with_capacity(frame_count);
-                for _ in 0..frame_count {
-                    in_tangents.push(scale_iter.next().unwrap());
-                }
-                for _ in 0..frame_count {
-                    values.push(scale_iter.next().unwrap());
-                }
-                for _ in 0..frame_count {
-                    out_tangents.push(scale_iter.next().unwrap());
-                }
-                AnimatedProperty::Scale(Sampler::Cubic(in_tangents, values, out_tangents))
-            }
-        },
+        ReadOutputs::Rotations(rotations) => AnimatedProperty::Rotation(convert_sampler(
+            rotations.into_f32(),
+            interpolation,
+            frame_count,
+        )),
+        ReadOutputs::Translations(translations) => {
+            AnimatedProperty::Translation(convert_sampler(translations, interpolation, frame_count))
+        }
+        ReadOutputs::Scales(scales) => {
+            AnimatedProperty::Scale(convert_sampler(scales, interpolation, frame_count))
+        }
         _ => {
             println!("morph target animation not handled yet");
             return None;
@@ -901,4 +787,63 @@ fn load_channel(
         timestamps,
         animated_property,
     })
+}
+
+fn convert_sampler<T1: Into<T2>, T2: Interpolable + Copy>(
+    iter: impl Iterator<Item = T1>,
+    interpolation: Interpolation,
+    length: usize,
+) -> Sampler<T2> {
+    match interpolation {
+        Interpolation::Step => Sampler::Step(iter.map(|i| i.into()).collect()),
+        Interpolation::Linear => Sampler::Linear(iter.map(|i| i.into()).collect()),
+        Interpolation::CubicSpline => {
+            let mut temp_iter = iter.map(|i| i.into());
+            let mut start = Vec::with_capacity(length);
+            let mut middle = Vec::with_capacity(length);
+            let mut end = Vec::with_capacity(length);
+            for _ in 0..length {
+                start.push(temp_iter.next().unwrap());
+            }
+            for _ in 0..length {
+                middle.push(temp_iter.next().unwrap());
+            }
+            for _ in 0..length {
+                end.push(temp_iter.next().unwrap());
+            }
+            Sampler::Cubic(start, middle, end)
+        }
+    }
+}
+
+fn load_animator(
+    skin: gltf::Skin,
+    all_nodes: &[Node],
+    gltf_document: &gltf::Document,
+    gltf_buffers: &[gltf::buffer::Data],
+) -> (Animator, Vec<usize>) {
+    let joints: Vec<_> = skin.joints().map(|n| n.index()).collect();
+    let inverse_matrices: Option<Vec<_>> = skin
+        .reader(|buffer| Some(&gltf_buffers[buffer.index()]))
+        .read_inverse_bind_matrices()
+        .map(|i| i.map(Transform::from_homogeneous).collect());
+    let (mut animator, global_mapping, joint_mapping) =
+        Animator::new(all_nodes, &joints, inverse_matrices);
+    for animation in gltf_document.animations() {
+        let channels = animation
+            .channels()
+            .filter_map(|c| load_channel(&c, &joints, &global_mapping, gltf_buffers))
+            .collect();
+        animator.animations.push(Animation { channels });
+    }
+    (animator, joint_mapping)
+}
+
+fn load_pbr_factors(primitive: &gltf::Primitive) -> PBRFactors {
+    let material = primitive.material().pbr_metallic_roughness();
+    PBRFactors {
+        color: material.base_color_factor(),
+        metalness: material.metallic_factor(),
+        roughness: material.roughness_factor(),
+    }
 }

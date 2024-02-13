@@ -12,7 +12,7 @@ layout(location = 2) in vec3 normal_direction;
 layout(location = 0) out vec4 f_color;
 
 const float lambertian_diffuse = 0.31830988618; // 1/pi
-const float ambient_light = 0.1;
+const float ambient_light = 0.01;
 
 void main() {
     vec3 half_direction = normalize(camera_direction + light_direction);
