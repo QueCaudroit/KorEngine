@@ -1,13 +1,14 @@
 use crate::{
+    animation::animation::{AnimatedValue, Animation},
     geometry::{Quaternion, Transform, Vec3},
-    graphics::animation::{AnimatedValue, Animation},
 };
 
+#[derive(Clone)]
 pub struct Animator {
-    nodes: Vec<Node>,
-    start_nodes: Vec<Node>,
-    inverse_transforms: Vec<Transform>,
-    parents: Vec<usize>,
+    pub nodes: Vec<Node>,
+    pub start_nodes: Vec<Node>,
+    pub inverse_transforms: Vec<Transform>,
+    pub parents: Vec<usize>,
     pub animations: Vec<Animation>,
 }
 

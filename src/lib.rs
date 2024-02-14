@@ -10,6 +10,7 @@ use winit::{
 
 use crate::{geometry::Transform, graphics::engine::Engine};
 
+pub mod animation;
 pub mod geometry;
 pub mod graphics;
 pub mod input;

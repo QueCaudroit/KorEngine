@@ -17,10 +17,12 @@ use vulkano::{
 };
 
 use crate::{
-    geometry::{Interpolable, Transform},
-    graphics::{
+    animation::{
         animation::{AnimatedProperty, Animation, AnimationChannel, Sampler},
         animator::Animator,
+    },
+    geometry::{Interpolable, Transform},
+    graphics::{
         engine::{
             BaseVertex, Engine, Joint, Normal, PBRFactors, Position, Skin, Texture, TextureCoord,
             Weight, IMAGE_FORMAT,

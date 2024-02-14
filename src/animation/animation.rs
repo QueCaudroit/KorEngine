@@ -1,4 +1,6 @@
 use crate::geometry::{Interpolable, Quaternion, Vec3};
+
+#[derive(Clone)]
 pub struct Animation {
     pub channels: Vec<AnimationChannel>,
 }
@@ -9,6 +11,7 @@ impl<'a> Animation {
     }
 }
 
+#[derive(Clone)]
 pub enum AnimatedProperty {
     Translation(Sampler<Vec3>),
     Rotation(Sampler<Quaternion>),
@@ -55,6 +58,7 @@ pub enum AnimatedValue {
     Scale(usize, Vec3),
 }
 
+#[derive(Clone)]
 pub struct AnimationChannel {
     pub node_id: usize,
     pub animated_property: AnimatedProperty,
@@ -98,6 +102,7 @@ impl AnimationChannel {
     }
 }
 
+#[derive(Clone)]
 pub enum Sampler<T: Interpolable + Copy> {
     Step(Vec<T>),
     Linear(Vec<T>),
