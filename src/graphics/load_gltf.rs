@@ -1,7 +1,10 @@
+use std::sync::Arc;
+
 use gltf::{
     animation::{util::ReadOutputs, Interpolation},
     image::Data,
     mesh::Reader,
+    texture::Info,
     Node,
 };
 use vulkano::{
@@ -17,7 +20,7 @@ use vulkano::{
 };
 
 use crate::{
-    animation::{
+    animation_system::{
         animation::{AnimatedProperty, Animation, AnimationChannel, Sampler},
         animator::Animator,
     },
@@ -27,7 +30,7 @@ use crate::{
             BaseVertex, Engine, Joint, Normal, PBRFactors, Position, Skin, Texture, TextureCoord,
             Weight, IMAGE_FORMAT,
         },
-        format_converter::convert_texture,
+        format_converter::r8g8b8a8,
     },
     Loader,
 };
@@ -607,6 +610,71 @@ impl<'a, 's> Engine {
             }
             Some(texture) => texture,
         };
+        let coordinates =
+            self.load_texture_coords(reader, &texture, vertex_len, index_buffer_option);
+        let image = self.load_texture_image(images, &texture);
+        Some(Texture { image, coordinates })
+    }
+
+    fn load_texture_image(&self, images: &[Data], texture_info: &Info) -> Arc<ImageView> {
+        let image_data = &images[texture_info.texture().source().index()];
+        let extent = [image_data.width, image_data.height, 1];
+        let temporary_accessible_buffer = Buffer::from_iter(
+            self.allocators.memory.clone(),
+            BufferCreateInfo {
+                usage: BufferUsage::TRANSFER_SRC,
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                ..Default::default()
+            },
+            r8g8b8a8::convert_texture(image_data),
+        )
+        .unwrap();
+
+        let image = Image::new(
+            self.allocators.memory.clone(),
+            ImageCreateInfo {
+                image_type: ImageType::Dim2d,
+                format: IMAGE_FORMAT,
+                extent,
+                usage: ImageUsage::TRANSFER_DST | ImageUsage::SAMPLED,
+                ..Default::default()
+            },
+            AllocationCreateInfo::default(),
+        )
+        .unwrap();
+        let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
+            &self.allocators.command_buffer,
+            self.queue.queue_family_index(),
+            CommandBufferUsage::OneTimeSubmit,
+        )
+        .unwrap();
+        command_buffer_builder
+            .copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(
+                temporary_accessible_buffer,
+                image.clone(),
+            ))
+            .unwrap();
+        let command_buffer = command_buffer_builder.build().unwrap();
+        let future = sync::now(self.device.clone())
+            .then_execute(self.queue.clone(), command_buffer)
+            .unwrap()
+            .then_signal_fence_and_flush()
+            .unwrap();
+        future.wait(None).unwrap();
+        ImageView::new_default(image).unwrap()
+    }
+
+    fn load_texture_coords(
+        &self,
+        reader: &Reader<'a, 's, impl Clone + Fn(gltf::Buffer<'a>) -> Option<&'s [u8]>>,
+        texture_info: &Info,
+        vertex_len: u64,
+        index_buffer_option: &Option<Subbuffer<[u32]>>,
+    ) -> Subbuffer<[TextureCoord]> {
         let tex_coord_temp = Buffer::from_iter(
             self.allocators.memory.clone(),
             BufferCreateInfo {
@@ -619,7 +687,7 @@ impl<'a, 's> Engine {
                 ..Default::default()
             },
             reader
-                .read_tex_coords(texture.tex_coord())
+                .read_tex_coords(texture_info.tex_coord())
                 .unwrap()
                 .into_f32()
                 .map(|c| TextureCoord { tex_coords_in: c }),
@@ -689,59 +757,7 @@ impl<'a, 's> Engine {
             .then_signal_fence_and_flush()
             .unwrap();
         future.wait(None).unwrap();
-
-        let image_data = &images[texture.texture().source().index()];
-        let extent = [image_data.width, image_data.height, 1];
-        let temporary_accessible_buffer = Buffer::from_iter(
-            self.allocators.memory.clone(),
-            BufferCreateInfo {
-                usage: BufferUsage::TRANSFER_SRC,
-                ..Default::default()
-            },
-            AllocationCreateInfo {
-                memory_type_filter: MemoryTypeFilter::PREFER_HOST
-                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-                ..Default::default()
-            },
-            convert_texture(image_data),
-        )
-        .unwrap();
-
-        let image = Image::new(
-            self.allocators.memory.clone(),
-            ImageCreateInfo {
-                image_type: ImageType::Dim2d,
-                format: IMAGE_FORMAT,
-                extent,
-                usage: ImageUsage::TRANSFER_DST | ImageUsage::SAMPLED,
-                ..Default::default()
-            },
-            AllocationCreateInfo::default(),
-        )
-        .unwrap();
-        let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
-            &self.allocators.command_buffer,
-            self.queue.queue_family_index(),
-            CommandBufferUsage::OneTimeSubmit,
-        )
-        .unwrap();
-        command_buffer_builder
-            .copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(
-                temporary_accessible_buffer,
-                image.clone(),
-            ))
-            .unwrap();
-        let command_buffer = command_buffer_builder.build().unwrap();
-        let future = sync::now(self.device.clone())
-            .then_execute(self.queue.clone(), command_buffer)
-            .unwrap()
-            .then_signal_fence_and_flush()
-            .unwrap();
-        future.wait(None).unwrap();
-        Some(Texture {
-            image: ImageView::new_default(image).unwrap(),
-            coordinates: tex_coord,
-        })
+        tex_coord
     }
 }
 

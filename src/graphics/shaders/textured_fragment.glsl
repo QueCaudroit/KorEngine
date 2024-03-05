@@ -1,11 +1,11 @@
 #version 450
 
-layout(binding = 3) uniform UniformBufferObject {
+layout(binding = 1) uniform UniformBufferObject {
     vec4 color;
     float metalness;
     float roughness;
 } ubo;
-layout(binding = 1) uniform sampler2D tex;
+layout(binding = 3) uniform sampler2D tex;
 
 
 layout(location = 0) in vec2 tex_coords;

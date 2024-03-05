@@ -1,5 +1,5 @@
 use crate::{
-    animation::animation::{AnimatedValue, Animation},
+    animation_system::animation::{AnimatedValue, Animation},
     geometry::{Quaternion, Transform, Vec3},
 };
 

@@ -24,8 +24,8 @@ use vulkano::{
     pipeline::{graphics::vertex_input::Vertex, Pipeline, PipelineBindPoint},
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass},
     swapchain::{
-        acquire_next_image, PresentMode, Surface, SurfaceCapabilities, Swapchain,
-        SwapchainCreateInfo, SwapchainPresentInfo,
+        acquire_next_image, Surface, SurfaceCapabilities, Swapchain, SwapchainCreateInfo,
+        SwapchainPresentInfo,
     },
     sync::{self, GpuFuture},
     Validated, VulkanError, VulkanLibrary,
@@ -151,7 +151,6 @@ impl Engine {
                 image_extent: window.inner_size().into(),
                 image_usage: ImageUsage::COLOR_ATTACHMENT,
                 composite_alpha,
-                present_mode: PresentMode::Immediate,
                 ..Default::default()
             },
         )
@@ -603,10 +602,10 @@ impl Engine {
                     layout.clone(),
                     [
                         WriteDescriptorSet::buffer(0, vertex_uniform),
-                        WriteDescriptorSet::buffer(3, fragment_uniform),
+                        WriteDescriptorSet::buffer(1, fragment_uniform),
                         WriteDescriptorSet::buffer(2, pose_buffer),
                         WriteDescriptorSet::image_view_sampler(
-                            1,
+                            3,
                             texture.image.clone(),
                             self.sampler.clone(),
                         ),

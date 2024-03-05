@@ -188,7 +188,7 @@ impl Transform {
                 self.rotation_scale[0],
                 [
                     self.rotation_scale[1][0] * c + self.rotation_scale[2][0] * s,
-                    self.rotation_scale[1][1] * c + self.rotation_scale[2][2] * s,
+                    self.rotation_scale[1][1] * c + self.rotation_scale[2][1] * s,
                     self.rotation_scale[1][2] * c + self.rotation_scale[2][2] * s,
                 ],
                 [

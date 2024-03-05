@@ -10,7 +10,7 @@ use winit::{
 
 use crate::{geometry::Transform, graphics::engine::Engine};
 
-pub mod animation;
+pub mod animation_system;
 pub mod geometry;
 pub mod graphics;
 pub mod input;
@@ -96,8 +96,6 @@ pub fn run(event_loop: EventLoop<()>, window: Window, gamescene: Box<dyn GameSce
     gameloop.gamescene.load(&mut gameloop.engine);
     let mut recreate_swapchain = false;
     window.set_visible(true);
-    let mut start = Instant::now();
-    let mut frames = 0;
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent {
             event: WindowEvent::CloseRequested,
@@ -118,15 +116,6 @@ pub fn run(event_loop: EventLoop<()>, window: Window, gamescene: Box<dyn GameSce
             gameloop.update_input(event);
         }
         Event::MainEventsCleared => {
-            frames += 1;
-            if frames >= 60 {
-                let now = Instant::now();
-                let duration = now.duration_since(start).as_secs_f32();
-                let fps = frames as f32 / duration;
-                println!("{fps} fps");
-                frames = 0;
-                start = now;
-            }
             if !gameloop.update_gamescene() {
                 *control_flow = ControlFlow::Exit
             }

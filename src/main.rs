@@ -7,7 +7,7 @@ use kor_engine::{
     GameScene, GameSceneState, Loader,
 };
 
-const SIZE: usize = 20;
+const SIZE: usize = 10;
 const JOINT_COUNT: usize = 24;
 const ROTATION_SPEED: f32 = 0.5;
 const TRANSLATION_SPEED: f32 = 5.0;
@@ -21,6 +21,7 @@ struct Scene {
     camera: Transform,
     fox: Option<Asset>,
     monkey: Option<Asset>,
+    helmet: Option<Asset>,
 }
 
 impl Scene {
@@ -35,6 +36,7 @@ impl Scene {
             ),
             fox: None,
             monkey: None,
+            helmet: None,
         }
     }
 }
@@ -43,6 +45,7 @@ impl GameScene for Scene {
     fn load(&mut self, loader: &mut dyn Loader) {
         self.fox = Some(loader.load("./Fox.glb", "fox"));
         self.monkey = Some(loader.load("./monkey.glb", "Suzanne"));
+        self.helmet = Some(loader.load("./DamagedHelmet.glb", "node_damagedHelmet_-6514"));
     }
 
     fn update(&mut self, input: &Input) -> GameSceneState {
@@ -95,8 +98,8 @@ impl GameScene for Scene {
                 }
             }
         }
-        match (&mut self.fox, &mut self.monkey) {
-            (Some(fox), Some(monkey)) => {
+        match (&mut self.fox, &mut self.monkey, &mut self.helmet) {
+            (Some(fox), Some(monkey), Some(helmet)) => {
                 drawer.draw(
                     self.camera,
                     [0.0, 7000.0, -7000.0],
@@ -107,6 +110,14 @@ impl GameScene for Scene {
                             &[Transform::new()
                                 .translate([-3.5, 0.0, 0.0])
                                 .rotate_y(self.angle)],
+                            None,
+                        ),
+                        DisplayRequest::In3D(
+                            helmet,
+                            &[Transform::new()
+                                .translate([-7.0, 0.0, 0.0])
+                                .rotate_y(self.angle)
+                                .rotate_x(1.57)],
                             None,
                         ),
                     ],
