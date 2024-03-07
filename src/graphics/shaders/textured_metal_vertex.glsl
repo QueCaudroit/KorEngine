@@ -10,11 +10,14 @@ layout(location = 0) in vec3 position;
 layout(location = 1) in vec3 normal;
 layout(location = 2) in mat4 model;
 layout(location = 6) in vec2 tex_coords_in;
+layout(location = 7) in vec2 tex_metal_coords_in;
+
 
 layout(location = 0) out vec3 light_direction;
 layout(location = 1) out vec3 camera_direction;
 layout(location = 2) out vec3 normal_direction;
 layout(location = 3) out vec2 tex_coords;
+layout(location = 4) out vec2 tex_metal_coords;
 
 void main() {
     vec4 world_position = model * vec4(position, 1.0);
@@ -23,4 +26,5 @@ void main() {
     camera_direction = normalize(ubo.camera_position - world_position.xyz);
     normal_direction = normalize((model * vec4(normal, 0.0)).xyz);
     tex_coords = tex_coords_in;
+    tex_metal_coords = tex_metal_coords_in;
 }

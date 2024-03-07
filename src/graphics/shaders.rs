@@ -40,6 +40,27 @@ pub mod textured_fragment_shader {
     }
 }
 
+pub mod textured_metal_vertex_shader {
+    vulkano_shaders::shader! {
+        ty: "vertex",
+        path: "src/graphics/shaders/textured_metal_vertex.glsl",
+    }
+}
+
+pub mod textured_metal_animated_vertex_shader {
+    vulkano_shaders::shader! {
+        ty: "vertex",
+        path: "src/graphics/shaders/textured_metal_animated_vertex.glsl",
+    }
+}
+
+pub mod textured_metal_fragment_shader {
+    vulkano_shaders::shader! {
+        ty: "fragment",
+        path: "src/graphics/shaders/textured_metal_fragment.glsl",
+    }
+}
+
 pub mod unindex_uvec4_shader {
     vulkano_shaders::shader! {
         ty: "compute",

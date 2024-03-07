@@ -12,7 +12,7 @@ const JOINT_COUNT: usize = 24;
 const ROTATION_SPEED: f32 = 0.5;
 const TRANSLATION_SPEED: f32 = 5.0;
 const FRAME_TIME: f32 = 1.0 / 60.0;
-const ANIMATION_LOOP_TIME: f32 = 1.0;
+const ANIMATION_LOOP_TIME: f32 = 1.1;
 
 struct Scene {
     frequency: f32,

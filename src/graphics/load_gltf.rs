@@ -31,7 +31,7 @@ use crate::{
             BaseVertex, Engine, Joint, Normal, PBRFactors, Position, Skin, Texture, TextureCoord,
             Weight,
         },
-        format_converter::color_texture,
+        format_converter::{color_texture, metal_roughness},
     },
     Loader,
 };
@@ -44,11 +44,13 @@ pub enum Asset {
 pub enum AnimatedPrimitive {
     Basic(BaseVertex, Skin, PBRFactors),
     Textured(BaseVertex, Texture, Skin, PBRFactors),
+    TexturedMetal(BaseVertex, Texture, Texture, Skin, PBRFactors),
 }
 
 pub enum StillPrimitive {
     Basic(BaseVertex, PBRFactors),
     Textured(BaseVertex, Texture, PBRFactors),
+    TexturedMetal(BaseVertex, Texture, Texture, PBRFactors),
 }
 
 impl Loader for Engine {
@@ -106,11 +108,12 @@ impl Engine {
         let vertex_len = vertex.positions.len();
         let skin = self.load_joints(&reader, &index_buffer_option, vertex_len, mapping);
         let pbr_gltf = primitive.material().pbr_metallic_roughness();
-        let pbr = load_pbr_factors(primitive);
-        let texture_option = pbr_gltf.base_color_texture();
-        match texture_option {
-            None => AnimatedPrimitive::Basic(vertex, skin, pbr),
-            Some(texture_info) => {
+        let pbr: PBRFactors = load_pbr_factors(primitive);
+        let color_texture_option = pbr_gltf.base_color_texture();
+        let metal_texture_option = pbr_gltf.metallic_roughness_texture();
+        match (color_texture_option, metal_texture_option) {
+            (None, None) => AnimatedPrimitive::Basic(vertex, skin, pbr),
+            (Some(texture_info), None) => {
                 let texture = Texture {
                     coordinates: self.load_texture_coords(
                         &reader,
@@ -118,9 +121,43 @@ impl Engine {
                         vertex.positions.len(),
                         &index_buffer_option,
                     ),
-                    image: self.load_texture_image(gltf_images, &texture_info),
+                    image: self.load_color_image(gltf_images, &texture_info),
                 };
                 AnimatedPrimitive::Textured(vertex, texture, skin, pbr)
+            }
+            (Some(color_texture_info), Some(metal_texture_info)) => {
+                let texture = Texture {
+                    coordinates: self.load_texture_coords(
+                        &reader,
+                        &color_texture_info,
+                        vertex.positions.len(),
+                        &index_buffer_option,
+                    ),
+                    image: self.load_color_image(gltf_images, &color_texture_info),
+                };
+                let texture_metal = Texture {
+                    coordinates: self.load_texture_coords(
+                        &reader,
+                        &metal_texture_info,
+                        vertex.positions.len(),
+                        &index_buffer_option,
+                    ),
+                    image: self.load_metal_image(gltf_images, &metal_texture_info),
+                };
+                AnimatedPrimitive::TexturedMetal(vertex, texture, texture_metal, skin, pbr)
+            }
+            (None, Some(metal_texture_info)) => {
+                let texture = self.load_default_color_texture(vertex.positions.len());
+                let texture_metal = Texture {
+                    coordinates: self.load_texture_coords(
+                        &reader,
+                        &metal_texture_info,
+                        vertex.positions.len(),
+                        &index_buffer_option,
+                    ),
+                    image: self.load_metal_image(gltf_images, &metal_texture_info),
+                };
+                AnimatedPrimitive::TexturedMetal(vertex, texture, texture_metal, skin, pbr)
             }
         }
     }
@@ -137,9 +174,10 @@ impl Engine {
         let pbr_gltf = primitive.material().pbr_metallic_roughness();
         let pbr = load_pbr_factors(primitive);
         let texture_option = pbr_gltf.base_color_texture();
-        match texture_option {
-            None => StillPrimitive::Basic(vertex, pbr),
-            Some(texture_info) => {
+        let metal_texture_option = pbr_gltf.metallic_roughness_texture();
+        match (texture_option, metal_texture_option) {
+            (None, None) => StillPrimitive::Basic(vertex, pbr),
+            (Some(texture_info), None) => {
                 let texture = Texture {
                     coordinates: self.load_texture_coords(
                         &reader,
@@ -147,9 +185,43 @@ impl Engine {
                         vertex.positions.len(),
                         &index_buffer_option,
                     ),
-                    image: self.load_texture_image(gltf_images, &texture_info),
+                    image: self.load_color_image(gltf_images, &texture_info),
                 };
                 StillPrimitive::Textured(vertex, texture, pbr)
+            }
+            (Some(color_texture_info), Some(metal_texture_info)) => {
+                let texture = Texture {
+                    coordinates: self.load_texture_coords(
+                        &reader,
+                        &color_texture_info,
+                        vertex.positions.len(),
+                        &index_buffer_option,
+                    ),
+                    image: self.load_color_image(gltf_images, &color_texture_info),
+                };
+                let texture_metal = Texture {
+                    coordinates: self.load_texture_coords(
+                        &reader,
+                        &metal_texture_info,
+                        vertex.positions.len(),
+                        &index_buffer_option,
+                    ),
+                    image: self.load_metal_image(gltf_images, &metal_texture_info),
+                };
+                StillPrimitive::TexturedMetal(vertex, texture, texture_metal, pbr)
+            }
+            (None, Some(metal_texture_info)) => {
+                let texture = self.load_default_color_texture(vertex.positions.len());
+                let texture_metal = Texture {
+                    coordinates: self.load_texture_coords(
+                        &reader,
+                        &metal_texture_info,
+                        vertex.positions.len(),
+                        &index_buffer_option,
+                    ),
+                    image: self.load_metal_image(gltf_images, &metal_texture_info),
+                };
+                StillPrimitive::TexturedMetal(vertex, texture, texture_metal, pbr)
             }
         }
     }
@@ -607,6 +679,104 @@ impl<'a, 's> Engine {
         })
     }
 
+    fn load_default_color_texture(&self, vertex_len: u64) -> Texture {
+        let tex_coord_temp = Buffer::from_iter(
+            self.allocators.memory.clone(),
+            BufferCreateInfo {
+                usage: BufferUsage::STORAGE_BUFFER.union(BufferUsage::TRANSFER_SRC),
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                ..Default::default()
+            },
+            vec![[0.0; 2]; vertex_len as usize],
+        )
+        .unwrap();
+        let tex_coord = Buffer::new_slice::<TextureCoord>(
+            self.allocators.memory.clone(),
+            BufferCreateInfo {
+                usage: BufferUsage::STORAGE_BUFFER
+                    .union(BufferUsage::TRANSFER_DST)
+                    .union(BufferUsage::VERTEX_BUFFER),
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
+                ..Default::default()
+            },
+            vertex_len,
+        )
+        .unwrap();
+        let mut builder = AutoCommandBufferBuilder::primary(
+            &self.allocators.command_buffer,
+            self.queue.queue_family_index(),
+            CommandBufferUsage::OneTimeSubmit,
+        )
+        .unwrap();
+        builder
+            .copy_buffer(CopyBufferInfo::buffers(tex_coord_temp, tex_coord.clone()))
+            .unwrap();
+        let command_buffer = builder.build().unwrap();
+        let future = sync::now(self.device.clone())
+            .then_execute(self.queue.clone(), command_buffer)
+            .unwrap()
+            .then_signal_fence_and_flush()
+            .unwrap();
+        future.wait(None).unwrap();
+        let temporary_accessible_buffer = Buffer::from_iter(
+            self.allocators.memory.clone(),
+            BufferCreateInfo {
+                usage: BufferUsage::TRANSFER_SRC,
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                ..Default::default()
+            },
+            [[u8::MAX; 4]; 1],
+        )
+        .unwrap();
+
+        let image = Image::new(
+            self.allocators.memory.clone(),
+            ImageCreateInfo {
+                image_type: ImageType::Dim2d,
+                format: Format::R8G8B8A8_SRGB,
+                extent: [1, 1, 1],
+                usage: ImageUsage::TRANSFER_DST | ImageUsage::SAMPLED,
+                ..Default::default()
+            },
+            AllocationCreateInfo::default(),
+        )
+        .unwrap();
+        let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
+            &self.allocators.command_buffer,
+            self.queue.queue_family_index(),
+            CommandBufferUsage::OneTimeSubmit,
+        )
+        .unwrap();
+        command_buffer_builder
+            .copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(
+                temporary_accessible_buffer,
+                image.clone(),
+            ))
+            .unwrap();
+        let command_buffer = command_buffer_builder.build().unwrap();
+        let future = sync::now(self.device.clone())
+            .then_execute(self.queue.clone(), command_buffer)
+            .unwrap()
+            .then_signal_fence_and_flush()
+            .unwrap();
+        future.wait(None).unwrap();
+        Texture {
+            coordinates: tex_coord,
+            image: ImageView::new_default(image).unwrap(),
+        }
+    }
+
     fn load_texture_coords(
         &self,
         reader: &Reader<'a, 's, impl Clone + Fn(gltf::Buffer<'a>) -> Option<&'s [u8]>>,
@@ -699,7 +869,7 @@ impl<'a, 's> Engine {
         tex_coord
     }
 
-    fn load_texture_image(&self, images: &[Data], texture_info: &Info) -> Arc<ImageView> {
+    fn load_color_image(&self, images: &[Data], texture_info: &Info) -> Arc<ImageView> {
         let image_data = &images[texture_info.texture().source().index()];
         let extent = [image_data.width, image_data.height, 1];
         let temporary_accessible_buffer = Buffer::from_iter(
@@ -722,6 +892,58 @@ impl<'a, 's> Engine {
             ImageCreateInfo {
                 image_type: ImageType::Dim2d,
                 format: Format::R8G8B8A8_SRGB,
+                extent,
+                usage: ImageUsage::TRANSFER_DST | ImageUsage::SAMPLED,
+                ..Default::default()
+            },
+            AllocationCreateInfo::default(),
+        )
+        .unwrap();
+        let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
+            &self.allocators.command_buffer,
+            self.queue.queue_family_index(),
+            CommandBufferUsage::OneTimeSubmit,
+        )
+        .unwrap();
+        command_buffer_builder
+            .copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(
+                temporary_accessible_buffer,
+                image.clone(),
+            ))
+            .unwrap();
+        let command_buffer = command_buffer_builder.build().unwrap();
+        let future = sync::now(self.device.clone())
+            .then_execute(self.queue.clone(), command_buffer)
+            .unwrap()
+            .then_signal_fence_and_flush()
+            .unwrap();
+        future.wait(None).unwrap();
+        ImageView::new_default(image).unwrap()
+    }
+
+    fn load_metal_image(&self, images: &[Data], texture_info: &Info) -> Arc<ImageView> {
+        let image_data = &images[texture_info.texture().source().index()];
+        let extent = [image_data.width, image_data.height, 1];
+        let temporary_accessible_buffer = Buffer::from_iter(
+            self.allocators.memory.clone(),
+            BufferCreateInfo {
+                usage: BufferUsage::TRANSFER_SRC,
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                ..Default::default()
+            },
+            metal_roughness::convert_texture(image_data),
+        )
+        .unwrap();
+
+        let image = Image::new(
+            self.allocators.memory.clone(),
+            ImageCreateInfo {
+                image_type: ImageType::Dim2d,
+                format: Format::R8G8_UNORM,
                 extent,
                 usage: ImageUsage::TRANSFER_DST | ImageUsage::SAMPLED,
                 ..Default::default()

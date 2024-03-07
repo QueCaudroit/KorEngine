@@ -8,10 +8,10 @@ layout(binding = 1) uniform UniformBufferObject {
 layout(binding = 3) uniform sampler2D tex;
 
 
-layout(location = 0) in vec2 tex_coords;
-layout(location = 1) in vec3 light_direction;
-layout(location = 2) in vec3 camera_direction;
-layout(location = 3) in vec3 normal_direction;
+layout(location = 0) in vec3 light_direction;
+layout(location = 1) in vec3 camera_direction;
+layout(location = 2) in vec3 normal_direction;
+layout(location = 3) in vec2 tex_coords;
 
 layout(location = 0) out vec4 f_color;
 
@@ -29,7 +29,12 @@ void main() {
     float non_roughness = 1 - roughness;
     float microfacet_distribution_coeff = 1 - non_roughness * NH * NH;
     float visibility_coeff = (NL + sqrt(roughness + non_roughness * NL * NL)) * (NV + sqrt(roughness + non_roughness * NV * NV));
-    float specular = max(roughness / (visibility_coeff * microfacet_distribution_coeff * microfacet_distribution_coeff), 0.0);
+    float specular;
+    if (NL <= 0.0 || NV <= 0.0) {
+        specular = 0.0;
+    } else {
+        specular = max(roughness / (visibility_coeff * microfacet_distribution_coeff * microfacet_distribution_coeff), 0.0);
+    }
     float schlick_coeff = 1 - dot(half_direction, camera_direction);
     schlick_coeff = schlick_coeff * schlick_coeff * schlick_coeff * schlick_coeff * schlick_coeff;
     float fresnel_mix_coeff = 0.04 + 0.96 * schlick_coeff;

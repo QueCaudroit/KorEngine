@@ -40,7 +40,9 @@ use crate::{
         pipeline::PipelineCollection,
         shaders::{
             basic_animated_vertex_shader, basic_fragment_shader, basic_vertex_shader,
-            textured_animated_vertex_shader, textured_fragment_shader, textured_vertex_shader,
+            textured_animated_vertex_shader, textured_fragment_shader,
+            textured_metal_animated_vertex_shader, textured_metal_fragment_shader,
+            textured_metal_vertex_shader, textured_vertex_shader,
         },
     },
     DisplayRequest, Drawer,
@@ -73,6 +75,13 @@ pub struct BaseVertex {
 pub struct TextureCoord {
     #[format(R32G32_SFLOAT)]
     pub tex_coords_in: [f32; 2],
+}
+
+#[derive(BufferContents, Vertex)]
+#[repr(C)]
+pub struct TextureMetalCoord {
+    #[format(R32G32_SFLOAT)]
+    pub tex_metal_coords_in: [f32; 2],
 }
 
 pub struct Texture {
@@ -356,8 +365,75 @@ impl Engine {
                         (
                             vertex.positions.clone(),
                             vertex.normals.clone(),
-                            texture.coordinates.clone(),
                             item_pos,
+                            texture.coordinates.clone(),
+                        ),
+                    )
+                    .unwrap()
+                    .draw(vertex_count, instance_count, 0, 0)
+                    .unwrap();
+            }
+            StillPrimitive::TexturedMetal(vertex, texture, texture_metal, pbr) => {
+                let vertex_count = vertex.positions.len() as u32;
+                let vertex_uniform = self.uniform_buffer.allocate_sized().unwrap();
+                *vertex_uniform.write().unwrap() =
+                    textured_metal_vertex_shader::UniformBufferObject {
+                        view_proj,
+                        light_position: light_position.into(),
+                        camera_position,
+                    };
+                let fragment_uniform = self.uniform_buffer.allocate_sized().unwrap();
+                *fragment_uniform.write().unwrap() =
+                    textured_metal_fragment_shader::UniformBufferObject {
+                        color: pbr.color,
+                        metalness: pbr.metalness,
+                        roughness: pbr.roughness,
+                    };
+                let layout = self
+                    .pipelines
+                    .textured_metal
+                    .layout()
+                    .set_layouts()
+                    .first()
+                    .unwrap();
+                let descriptor_set = PersistentDescriptorSet::new(
+                    &self.allocators.descriptor_set,
+                    layout.clone(),
+                    [
+                        WriteDescriptorSet::buffer(0, vertex_uniform),
+                        WriteDescriptorSet::buffer(1, fragment_uniform),
+                        WriteDescriptorSet::image_view_sampler(
+                            3,
+                            texture.image.clone(),
+                            self.sampler.clone(),
+                        ),
+                        WriteDescriptorSet::image_view_sampler(
+                            4,
+                            texture_metal.image.clone(),
+                            self.sampler.clone(),
+                        ),
+                    ],
+                    [],
+                )
+                .unwrap();
+                builder
+                    .bind_pipeline_graphics(self.pipelines.textured_metal.clone())
+                    .unwrap()
+                    .bind_descriptor_sets(
+                        PipelineBindPoint::Graphics,
+                        self.pipelines.textured_metal.layout().clone(),
+                        0,
+                        descriptor_set,
+                    )
+                    .unwrap()
+                    .bind_vertex_buffers(
+                        0,
+                        (
+                            vertex.positions.clone(),
+                            vertex.normals.clone(),
+                            item_pos,
+                            texture.coordinates.clone(),
+                            texture_metal.coordinates.clone(),
                         ),
                     )
                     .unwrap()
@@ -478,8 +554,75 @@ impl Engine {
                         (
                             vertex.positions.clone(),
                             vertex.normals.clone(),
-                            texture.coordinates.clone(),
                             item_pos,
+                            texture.coordinates.clone(),
+                        ),
+                    )
+                    .unwrap()
+                    .draw(vertex_count, instance_count, 0, 0)
+                    .unwrap();
+            }
+            (AnimatedPrimitive::TexturedMetal(vertex, texture, texture_metal, _, pbr), None) => {
+                let vertex_count = vertex.positions.len() as u32;
+                let vertex_uniform = self.uniform_buffer.allocate_sized().unwrap();
+                *vertex_uniform.write().unwrap() =
+                    textured_metal_vertex_shader::UniformBufferObject {
+                        view_proj,
+                        light_position: light_position.into(),
+                        camera_position,
+                    };
+                let fragment_uniform = self.uniform_buffer.allocate_sized().unwrap();
+                *fragment_uniform.write().unwrap() =
+                    textured_metal_fragment_shader::UniformBufferObject {
+                        color: pbr.color,
+                        metalness: pbr.metalness,
+                        roughness: pbr.roughness,
+                    };
+                let layout = self
+                    .pipelines
+                    .textured_metal
+                    .layout()
+                    .set_layouts()
+                    .first()
+                    .unwrap();
+                let descriptor_set = PersistentDescriptorSet::new(
+                    &self.allocators.descriptor_set,
+                    layout.clone(),
+                    [
+                        WriteDescriptorSet::buffer(0, vertex_uniform),
+                        WriteDescriptorSet::buffer(1, fragment_uniform),
+                        WriteDescriptorSet::image_view_sampler(
+                            3,
+                            texture.image.clone(),
+                            self.sampler.clone(),
+                        ),
+                        WriteDescriptorSet::image_view_sampler(
+                            4,
+                            texture_metal.image.clone(),
+                            self.sampler.clone(),
+                        ),
+                    ],
+                    [],
+                )
+                .unwrap();
+                builder
+                    .bind_pipeline_graphics(self.pipelines.textured_metal.clone())
+                    .unwrap()
+                    .bind_descriptor_sets(
+                        PipelineBindPoint::Graphics,
+                        self.pipelines.textured_metal.layout().clone(),
+                        0,
+                        descriptor_set,
+                    )
+                    .unwrap()
+                    .bind_vertex_buffers(
+                        0,
+                        (
+                            vertex.positions.clone(),
+                            vertex.normals.clone(),
+                            item_pos,
+                            texture.coordinates.clone(),
+                            texture_metal.coordinates.clone(),
                         ),
                     )
                     .unwrap()
@@ -558,7 +701,6 @@ impl Engine {
                     .draw(vertex_count, instance_count, 0, 0)
                     .unwrap();
             }
-
             (AnimatedPrimitive::Textured(vertex, texture, skin, pbr), Some(pose)) => {
                 let pose_buffer = Buffer::from_iter(
                     self.allocators.memory.clone(),
@@ -628,10 +770,98 @@ impl Engine {
                         (
                             vertex.positions.clone(),
                             vertex.normals.clone(),
-                            texture.coordinates.clone(),
                             item_pos,
                             skin.weights.clone(),
                             skin.joints.clone(),
+                            texture.coordinates.clone(),
+                        ),
+                    )
+                    .unwrap()
+                    .draw(vertex_count, instance_count, 0, 0)
+                    .unwrap();
+            }
+            (
+                AnimatedPrimitive::TexturedMetal(vertex, texture, texture_metal, skin, pbr),
+                Some(pose),
+            ) => {
+                let pose_buffer = Buffer::from_iter(
+                    self.allocators.memory.clone(),
+                    BufferCreateInfo {
+                        usage: BufferUsage::STORAGE_BUFFER,
+                        ..Default::default()
+                    },
+                    AllocationCreateInfo {
+                        memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                            | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                        ..Default::default()
+                    },
+                    pose.iter().map(|pose| pose.to_homogeneous()),
+                )
+                .unwrap();
+                let vertex_count = vertex.positions.len() as u32;
+                let vertex_uniform = self.uniform_buffer.allocate_sized().unwrap();
+                *vertex_uniform.write().unwrap() =
+                    textured_metal_animated_vertex_shader::UniformBufferObject {
+                        view_proj,
+                        light_position: light_position.into(),
+                        camera_position,
+                        transform_length: pose_buffer.len() as u32 / instance_count,
+                    };
+                let fragment_uniform = self.uniform_buffer.allocate_sized().unwrap();
+                *fragment_uniform.write().unwrap() =
+                    textured_metal_fragment_shader::UniformBufferObject {
+                        color: pbr.color,
+                        metalness: pbr.metalness,
+                        roughness: pbr.roughness,
+                    };
+                let layout = self
+                    .pipelines
+                    .textured_metal_animated
+                    .layout()
+                    .set_layouts()
+                    .first()
+                    .unwrap();
+                let descriptor_set = PersistentDescriptorSet::new(
+                    &self.allocators.descriptor_set,
+                    layout.clone(),
+                    [
+                        WriteDescriptorSet::buffer(0, vertex_uniform),
+                        WriteDescriptorSet::buffer(1, fragment_uniform),
+                        WriteDescriptorSet::buffer(2, pose_buffer),
+                        WriteDescriptorSet::image_view_sampler(
+                            3,
+                            texture.image.clone(),
+                            self.sampler.clone(),
+                        ),
+                        WriteDescriptorSet::image_view_sampler(
+                            4,
+                            texture_metal.image.clone(),
+                            self.sampler.clone(),
+                        ),
+                    ],
+                    [],
+                )
+                .unwrap();
+                builder
+                    .bind_pipeline_graphics(self.pipelines.textured_metal_animated.clone())
+                    .unwrap()
+                    .bind_descriptor_sets(
+                        PipelineBindPoint::Graphics,
+                        self.pipelines.textured_metal_animated.layout().clone(),
+                        0,
+                        descriptor_set,
+                    )
+                    .unwrap()
+                    .bind_vertex_buffers(
+                        0,
+                        (
+                            vertex.positions.clone(),
+                            vertex.normals.clone(),
+                            item_pos,
+                            skin.weights.clone(),
+                            skin.joints.clone(),
+                            texture.coordinates.clone(),
+                            texture_metal.coordinates.clone(),
                         ),
                     )
                     .unwrap()
