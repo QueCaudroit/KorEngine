@@ -13,6 +13,7 @@ use vulkano::{
         AutoCommandBufferBuilder, CommandBufferUsage, CopyBufferInfo, CopyBufferToImageInfo,
     },
     descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
+    format::Format,
     image::{view::ImageView, Image, ImageCreateInfo, ImageType, ImageUsage},
     memory::allocator::{AllocationCreateInfo, MemoryTypeFilter},
     pipeline::{Pipeline, PipelineBindPoint},
@@ -28,9 +29,9 @@ use crate::{
     graphics::{
         engine::{
             BaseVertex, Engine, Joint, Normal, PBRFactors, Position, Skin, Texture, TextureCoord,
-            Weight, IMAGE_FORMAT,
+            Weight,
         },
-        format_converter::r8g8b8a8,
+        format_converter::color_texture,
     },
     Loader,
 };
@@ -104,17 +105,23 @@ impl Engine {
         let vertex = self.load_base_vertex(&reader, &index_buffer_option);
         let vertex_len = vertex.positions.len();
         let skin = self.load_joints(&reader, &index_buffer_option, vertex_len, mapping);
-        let texture_option = self.load_texture(
-            primitive,
-            &reader,
-            gltf_images,
-            vertex_len,
-            &index_buffer_option,
-        );
+        let pbr_gltf = primitive.material().pbr_metallic_roughness();
         let pbr = load_pbr_factors(primitive);
+        let texture_option = pbr_gltf.base_color_texture();
         match texture_option {
-            Some(texture) => AnimatedPrimitive::Textured(vertex, texture, skin, pbr),
             None => AnimatedPrimitive::Basic(vertex, skin, pbr),
+            Some(texture_info) => {
+                let texture = Texture {
+                    coordinates: self.load_texture_coords(
+                        &reader,
+                        &texture_info,
+                        vertex.positions.len(),
+                        &index_buffer_option,
+                    ),
+                    image: self.load_texture_image(gltf_images, &texture_info),
+                };
+                AnimatedPrimitive::Textured(vertex, texture, skin, pbr)
+            }
         }
     }
 
@@ -127,17 +134,23 @@ impl Engine {
         let reader = primitive.reader(|buffer| Some(&gltf_buffers[buffer.index()]));
         let index_buffer_option = self.load_index_buffer(&reader);
         let vertex = self.load_base_vertex(&reader, &index_buffer_option);
-        let texture_option = self.load_texture(
-            primitive,
-            &reader,
-            gltf_images,
-            vertex.positions.len(),
-            &index_buffer_option,
-        );
+        let pbr_gltf = primitive.material().pbr_metallic_roughness();
         let pbr = load_pbr_factors(primitive);
+        let texture_option = pbr_gltf.base_color_texture();
         match texture_option {
-            Some(texture) => StillPrimitive::Textured(vertex, texture, pbr),
             None => StillPrimitive::Basic(vertex, pbr),
+            Some(texture_info) => {
+                let texture = Texture {
+                    coordinates: self.load_texture_coords(
+                        &reader,
+                        &texture_info,
+                        vertex.positions.len(),
+                        &index_buffer_option,
+                    ),
+                    image: self.load_texture_image(gltf_images, &texture_info),
+                };
+                StillPrimitive::Textured(vertex, texture, pbr)
+            }
         }
     }
 }
@@ -594,80 +607,6 @@ impl<'a, 's> Engine {
         })
     }
 
-    fn load_texture(
-        &self,
-        primitive: &gltf::Primitive<'_>,
-        reader: &Reader<'a, 's, impl Clone + Fn(gltf::Buffer<'a>) -> Option<&'s [u8]>>,
-        images: &[Data],
-        vertex_len: u64,
-        index_buffer_option: &Option<Subbuffer<[u32]>>,
-    ) -> Option<Texture> {
-        let pbr = primitive.material().pbr_metallic_roughness();
-        let texture_option = pbr.base_color_texture();
-        let texture = match texture_option {
-            None => {
-                return None;
-            }
-            Some(texture) => texture,
-        };
-        let coordinates =
-            self.load_texture_coords(reader, &texture, vertex_len, index_buffer_option);
-        let image = self.load_texture_image(images, &texture);
-        Some(Texture { image, coordinates })
-    }
-
-    fn load_texture_image(&self, images: &[Data], texture_info: &Info) -> Arc<ImageView> {
-        let image_data = &images[texture_info.texture().source().index()];
-        let extent = [image_data.width, image_data.height, 1];
-        let temporary_accessible_buffer = Buffer::from_iter(
-            self.allocators.memory.clone(),
-            BufferCreateInfo {
-                usage: BufferUsage::TRANSFER_SRC,
-                ..Default::default()
-            },
-            AllocationCreateInfo {
-                memory_type_filter: MemoryTypeFilter::PREFER_HOST
-                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-                ..Default::default()
-            },
-            r8g8b8a8::convert_texture(image_data),
-        )
-        .unwrap();
-
-        let image = Image::new(
-            self.allocators.memory.clone(),
-            ImageCreateInfo {
-                image_type: ImageType::Dim2d,
-                format: IMAGE_FORMAT,
-                extent,
-                usage: ImageUsage::TRANSFER_DST | ImageUsage::SAMPLED,
-                ..Default::default()
-            },
-            AllocationCreateInfo::default(),
-        )
-        .unwrap();
-        let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
-            &self.allocators.command_buffer,
-            self.queue.queue_family_index(),
-            CommandBufferUsage::OneTimeSubmit,
-        )
-        .unwrap();
-        command_buffer_builder
-            .copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(
-                temporary_accessible_buffer,
-                image.clone(),
-            ))
-            .unwrap();
-        let command_buffer = command_buffer_builder.build().unwrap();
-        let future = sync::now(self.device.clone())
-            .then_execute(self.queue.clone(), command_buffer)
-            .unwrap()
-            .then_signal_fence_and_flush()
-            .unwrap();
-        future.wait(None).unwrap();
-        ImageView::new_default(image).unwrap()
-    }
-
     fn load_texture_coords(
         &self,
         reader: &Reader<'a, 's, impl Clone + Fn(gltf::Buffer<'a>) -> Option<&'s [u8]>>,
@@ -758,6 +697,58 @@ impl<'a, 's> Engine {
             .unwrap();
         future.wait(None).unwrap();
         tex_coord
+    }
+
+    fn load_texture_image(&self, images: &[Data], texture_info: &Info) -> Arc<ImageView> {
+        let image_data = &images[texture_info.texture().source().index()];
+        let extent = [image_data.width, image_data.height, 1];
+        let temporary_accessible_buffer = Buffer::from_iter(
+            self.allocators.memory.clone(),
+            BufferCreateInfo {
+                usage: BufferUsage::TRANSFER_SRC,
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                ..Default::default()
+            },
+            color_texture::convert_texture(image_data),
+        )
+        .unwrap();
+
+        let image = Image::new(
+            self.allocators.memory.clone(),
+            ImageCreateInfo {
+                image_type: ImageType::Dim2d,
+                format: Format::R8G8B8A8_SRGB,
+                extent,
+                usage: ImageUsage::TRANSFER_DST | ImageUsage::SAMPLED,
+                ..Default::default()
+            },
+            AllocationCreateInfo::default(),
+        )
+        .unwrap();
+        let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
+            &self.allocators.command_buffer,
+            self.queue.queue_family_index(),
+            CommandBufferUsage::OneTimeSubmit,
+        )
+        .unwrap();
+        command_buffer_builder
+            .copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(
+                temporary_accessible_buffer,
+                image.clone(),
+            ))
+            .unwrap();
+        let command_buffer = command_buffer_builder.build().unwrap();
+        let future = sync::now(self.device.clone())
+            .then_execute(self.queue.clone(), command_buffer)
+            .unwrap()
+            .then_signal_fence_and_flush()
+            .unwrap();
+        future.wait(None).unwrap();
+        ImageView::new_default(image).unwrap()
     }
 }
 

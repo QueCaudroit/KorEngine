@@ -1,1 +1,3 @@
-pub mod r8g8b8a8;
+pub mod color_texture;
+pub mod metal_roughness;
+pub mod occlusion;
