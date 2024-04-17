@@ -22,13 +22,18 @@ use vulkano::{
 };
 
 use crate::graphics::{
-    engine::{Joint, Model, Normal, Position, TextureCoord, TextureMetalCoord, Weight},
+    engine::{
+        Joint, Model, Normal, Position, Tangent, TextureCoord, TextureMetalCoord,
+        TextureNormalCoord, Weight,
+    },
     shaders::{
         basic_animated_vertex_shader, basic_fragment_shader, basic_vertex_shader,
-        map_joints_shader, normal_shader, textured_animated_vertex_shader,
+        map_joints_shader, normal_shader, tangent_simple_shader, textured_animated_vertex_shader,
         textured_fragment_shader, textured_metal_animated_vertex_shader,
-        textured_metal_fragment_shader, textured_metal_vertex_shader, textured_vertex_shader,
-        unindex_uvec4_shader, unindex_vec2_shader, unindex_vec3_shader, unindex_vec4_shader,
+        textured_metal_fragment_shader, textured_metal_vertex_shader,
+        textured_normal_animated_vertex_shader, textured_normal_fragment_shader,
+        textured_normal_vertex_shader, textured_vertex_shader, unindex_uvec4_shader,
+        unindex_vec2_shader, unindex_vec3_shader, unindex_vec4_shader,
     },
 };
 
@@ -42,6 +47,9 @@ struct ShaderCollection {
     textured_metal_vertex: Arc<ShaderModule>,
     textured_metal_animated_vertex: Arc<ShaderModule>,
     textured_metal_fragment: Arc<ShaderModule>,
+    textured_normal_vertex: Arc<ShaderModule>,
+    textured_normal_animated_vertex: Arc<ShaderModule>,
+    textured_normal_fragment: Arc<ShaderModule>,
 }
 
 pub struct PipelineCollection {
@@ -51,11 +59,14 @@ pub struct PipelineCollection {
     pub textured_animated: Arc<GraphicsPipeline>,
     pub textured_metal: Arc<GraphicsPipeline>,
     pub textured_metal_animated: Arc<GraphicsPipeline>,
+    pub textured_normal: Arc<GraphicsPipeline>,
+    pub textured_normal_animated: Arc<GraphicsPipeline>,
     pub unindex_uvec4: Arc<ComputePipeline>,
     pub unindex_vec4: Arc<ComputePipeline>,
     pub unindex_vec3: Arc<ComputePipeline>,
     pub unindex_vec2: Arc<ComputePipeline>,
     pub normal: Arc<ComputePipeline>,
+    pub tangent_simple: Arc<ComputePipeline>,
     pub map_joints: Arc<ComputePipeline>,
     shaders: ShaderCollection,
 }
@@ -80,6 +91,13 @@ impl PipelineCollection {
             textured_metal_animated_vertex_shader::load(device.clone())
                 .expect("failed to create shader module");
         let textured_metal_fragment = textured_metal_fragment_shader::load(device.clone())
+            .expect("failed to create shader module");
+        let textured_normal_vertex = textured_normal_vertex_shader::load(device.clone())
+            .expect("failed to create shader module");
+        let textured_normal_animated_vertex =
+            textured_normal_animated_vertex_shader::load(device.clone())
+                .expect("failed to create shader module");
+        let textured_normal_fragment = textured_normal_fragment_shader::load(device.clone())
             .expect("failed to create shader module");
         let basic = build_graphics_pipeline(
             device.clone(),
@@ -135,7 +153,6 @@ impl PipelineCollection {
             render_pass.clone(),
             dimensions,
         );
-
         let textured_metal = build_graphics_pipeline(
             device.clone(),
             textured_metal_vertex.entry_point("main").unwrap(),
@@ -163,6 +180,40 @@ impl PipelineCollection {
                 TextureMetalCoord::per_vertex(),
             ],
             textured_metal_fragment.entry_point("main").unwrap(),
+            render_pass.clone(),
+            dimensions,
+        );
+        let textured_normal = build_graphics_pipeline(
+            device.clone(),
+            textured_normal_vertex.entry_point("main").unwrap(),
+            &[
+                Position::per_vertex(),
+                Normal::per_vertex(),
+                Model::per_instance(),
+                TextureCoord::per_vertex(),
+                TextureMetalCoord::per_vertex(),
+                TextureNormalCoord::per_vertex(),
+                Tangent::per_vertex(),
+            ],
+            textured_normal_fragment.entry_point("main").unwrap(),
+            render_pass.clone(),
+            dimensions,
+        );
+        let textured_normal_animated = build_graphics_pipeline(
+            device.clone(),
+            textured_normal_animated_vertex.entry_point("main").unwrap(),
+            &[
+                Position::per_vertex(),
+                Normal::per_vertex(),
+                Model::per_instance(),
+                Weight::per_vertex(),
+                Joint::per_vertex(),
+                TextureCoord::per_vertex(),
+                TextureMetalCoord::per_vertex(),
+                TextureNormalCoord::per_vertex(),
+                Tangent::per_vertex(),
+            ],
+            textured_normal_fragment.entry_point("main").unwrap(),
             render_pass,
             dimensions,
         );
@@ -201,6 +252,13 @@ impl PipelineCollection {
                 .entry_point("main")
                 .unwrap(),
         );
+        let tangent_simple = build_compute_pipeline(
+            device.clone(),
+            tangent_simple_shader::load(device.clone())
+                .expect("failed to create shader module")
+                .entry_point("main")
+                .unwrap(),
+        );
         let map_joints = build_compute_pipeline(
             device.clone(),
             map_joints_shader::load(device)
@@ -220,7 +278,10 @@ impl PipelineCollection {
             unindex_vec3,
             unindex_vec2,
             normal,
+            tangent_simple,
             map_joints,
+            textured_normal,
+            textured_normal_animated,
             shaders: ShaderCollection {
                 basic_vertex,
                 basic_animated_vertex,
@@ -231,6 +292,9 @@ impl PipelineCollection {
                 textured_metal_vertex,
                 textured_metal_animated_vertex,
                 textured_metal_fragment,
+                textured_normal_vertex,
+                textured_normal_animated_vertex,
+                textured_normal_fragment,
             },
         }
     }
@@ -301,7 +365,6 @@ impl PipelineCollection {
             render_pass.clone(),
             dimensions,
         );
-
         self.textured_metal = build_graphics_pipeline(
             device.clone(),
             self.shaders
@@ -339,6 +402,52 @@ impl PipelineCollection {
             ],
             self.shaders
                 .textured_metal_fragment
+                .entry_point("main")
+                .unwrap(),
+            render_pass.clone(),
+            dimensions,
+        );
+        self.textured_normal = build_graphics_pipeline(
+            device.clone(),
+            self.shaders
+                .textured_normal_vertex
+                .entry_point("main")
+                .unwrap(),
+            &[
+                Position::per_vertex(),
+                Normal::per_vertex(),
+                Model::per_instance(),
+                TextureCoord::per_vertex(),
+                TextureMetalCoord::per_vertex(),
+                TextureNormalCoord::per_vertex(),
+                Tangent::per_vertex(),
+            ],
+            self.shaders
+                .textured_normal_fragment
+                .entry_point("main")
+                .unwrap(),
+            render_pass.clone(),
+            dimensions,
+        );
+        self.textured_normal_animated = build_graphics_pipeline(
+            device.clone(),
+            self.shaders
+                .textured_normal_animated_vertex
+                .entry_point("main")
+                .unwrap(),
+            &[
+                Position::per_vertex(),
+                Normal::per_vertex(),
+                Model::per_instance(),
+                Weight::per_vertex(),
+                Joint::per_vertex(),
+                TextureCoord::per_vertex(),
+                TextureMetalCoord::per_vertex(),
+                TextureNormalCoord::per_vertex(),
+                Tangent::per_vertex(),
+            ],
+            self.shaders
+                .textured_normal_fragment
                 .entry_point("main")
                 .unwrap(),
             render_pass,

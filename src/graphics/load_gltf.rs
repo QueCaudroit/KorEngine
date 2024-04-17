@@ -8,7 +8,7 @@ use gltf::{
     Node,
 };
 use vulkano::{
-    buffer::{Buffer, BufferCreateInfo, BufferUsage, Subbuffer},
+    buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer},
     command_buffer::{
         AutoCommandBufferBuilder, CommandBufferUsage, CopyBufferInfo, CopyBufferToImageInfo,
     },
@@ -28,29 +28,31 @@ use crate::{
     geometry::{Interpolable, Transform},
     graphics::{
         engine::{
-            BaseVertex, Engine, Joint, Normal, PBRFactors, Position, Skin, Texture, TextureCoord,
-            Weight,
+            BaseVertex, Engine, Joint, Normal, NormalTexture, PBRFactors, Position, Skin, Texture,
+            TextureCoord, Weight,
         },
         format_converter::{color_texture, metal_roughness},
     },
     Loader,
 };
 
+use super::engine::Tangent;
+
 pub enum Asset {
     Animated(Vec<AnimatedPrimitive>, Animator),
-    Still(Vec<StillPrimitive>),
+    Still(Vec<Primitive>),
 }
 
-pub enum AnimatedPrimitive {
-    Basic(BaseVertex, Skin, PBRFactors),
-    Textured(BaseVertex, Texture, Skin, PBRFactors),
-    TexturedMetal(BaseVertex, Texture, Texture, Skin, PBRFactors),
+pub struct AnimatedPrimitive {
+    pub primitive: Primitive,
+    pub skin: Skin,
 }
 
-pub enum StillPrimitive {
+pub enum Primitive {
     Basic(BaseVertex, PBRFactors),
     Textured(BaseVertex, Texture, PBRFactors),
     TexturedMetal(BaseVertex, Texture, Texture, PBRFactors),
+    TexturedNormal(BaseVertex, Texture, Texture, NormalTexture, PBRFactors),
 }
 
 impl Loader for Engine {
@@ -107,59 +109,8 @@ impl Engine {
         let vertex = self.load_base_vertex(&reader, &index_buffer_option);
         let vertex_len = vertex.positions.len();
         let skin = self.load_joints(&reader, &index_buffer_option, vertex_len, mapping);
-        let pbr_gltf = primitive.material().pbr_metallic_roughness();
-        let pbr: PBRFactors = load_pbr_factors(primitive);
-        let color_texture_option = pbr_gltf.base_color_texture();
-        let metal_texture_option = pbr_gltf.metallic_roughness_texture();
-        match (color_texture_option, metal_texture_option) {
-            (None, None) => AnimatedPrimitive::Basic(vertex, skin, pbr),
-            (Some(texture_info), None) => {
-                let texture = Texture {
-                    coordinates: self.load_texture_coords(
-                        &reader,
-                        &texture_info,
-                        vertex.positions.len(),
-                        &index_buffer_option,
-                    ),
-                    image: self.load_color_image(gltf_images, &texture_info),
-                };
-                AnimatedPrimitive::Textured(vertex, texture, skin, pbr)
-            }
-            (Some(color_texture_info), Some(metal_texture_info)) => {
-                let texture = Texture {
-                    coordinates: self.load_texture_coords(
-                        &reader,
-                        &color_texture_info,
-                        vertex.positions.len(),
-                        &index_buffer_option,
-                    ),
-                    image: self.load_color_image(gltf_images, &color_texture_info),
-                };
-                let texture_metal = Texture {
-                    coordinates: self.load_texture_coords(
-                        &reader,
-                        &metal_texture_info,
-                        vertex.positions.len(),
-                        &index_buffer_option,
-                    ),
-                    image: self.load_metal_image(gltf_images, &metal_texture_info),
-                };
-                AnimatedPrimitive::TexturedMetal(vertex, texture, texture_metal, skin, pbr)
-            }
-            (None, Some(metal_texture_info)) => {
-                let texture = self.load_default_color_texture(vertex.positions.len());
-                let texture_metal = Texture {
-                    coordinates: self.load_texture_coords(
-                        &reader,
-                        &metal_texture_info,
-                        vertex.positions.len(),
-                        &index_buffer_option,
-                    ),
-                    image: self.load_metal_image(gltf_images, &metal_texture_info),
-                };
-                AnimatedPrimitive::TexturedMetal(vertex, texture, texture_metal, skin, pbr)
-            }
-        }
+        let primitive = self.load_still_primitive(primitive, gltf_buffers, gltf_images);
+        AnimatedPrimitive { skin, primitive }
     }
 
     fn load_still_primitive(
@@ -167,17 +118,23 @@ impl Engine {
         primitive: &gltf::Primitive,
         gltf_buffers: &[gltf::buffer::Data],
         gltf_images: &[gltf::image::Data],
-    ) -> StillPrimitive {
+    ) -> Primitive {
         let reader = primitive.reader(|buffer| Some(&gltf_buffers[buffer.index()]));
         let index_buffer_option = self.load_index_buffer(&reader);
         let vertex = self.load_base_vertex(&reader, &index_buffer_option);
+        let vertex_len = vertex.positions.len();
         let pbr_gltf = primitive.material().pbr_metallic_roughness();
         let pbr = load_pbr_factors(primitive);
         let texture_option = pbr_gltf.base_color_texture();
         let metal_texture_option = pbr_gltf.metallic_roughness_texture();
-        match (texture_option, metal_texture_option) {
-            (None, None) => StillPrimitive::Basic(vertex, pbr),
-            (Some(texture_info), None) => {
+        let normal_texture_option = primitive.material().normal_texture();
+        match (
+            &texture_option,
+            &metal_texture_option,
+            &normal_texture_option,
+        ) {
+            (None, None, None) => Primitive::Basic(vertex, pbr),
+            (Some(texture_info), None, None) => {
                 let texture = Texture {
                     coordinates: self.load_texture_coords(
                         &reader,
@@ -187,17 +144,20 @@ impl Engine {
                     ),
                     image: self.load_color_image(gltf_images, &texture_info),
                 };
-                StillPrimitive::Textured(vertex, texture, pbr)
+                Primitive::Textured(vertex, texture, pbr)
             }
-            (Some(color_texture_info), Some(metal_texture_info)) => {
-                let texture = Texture {
-                    coordinates: self.load_texture_coords(
-                        &reader,
-                        &color_texture_info,
-                        vertex.positions.len(),
-                        &index_buffer_option,
-                    ),
-                    image: self.load_color_image(gltf_images, &color_texture_info),
+            (_, Some(metal_texture_info), None) => {
+                let texture = match texture_option {
+                    Some(texture_info) => Texture {
+                        coordinates: self.load_texture_coords(
+                            &reader,
+                            &texture_info,
+                            vertex.positions.len(),
+                            &index_buffer_option,
+                        ),
+                        image: self.load_color_image(gltf_images, &texture_info),
+                    },
+                    None => self.load_default_color_texture(vertex_len),
                 };
                 let texture_metal = Texture {
                     coordinates: self.load_texture_coords(
@@ -208,20 +168,55 @@ impl Engine {
                     ),
                     image: self.load_metal_image(gltf_images, &metal_texture_info),
                 };
-                StillPrimitive::TexturedMetal(vertex, texture, texture_metal, pbr)
+                Primitive::TexturedMetal(vertex, texture, texture_metal, pbr)
             }
-            (None, Some(metal_texture_info)) => {
-                let texture = self.load_default_color_texture(vertex.positions.len());
-                let texture_metal = Texture {
-                    coordinates: self.load_texture_coords(
-                        &reader,
-                        &metal_texture_info,
-                        vertex.positions.len(),
-                        &index_buffer_option,
-                    ),
-                    image: self.load_metal_image(gltf_images, &metal_texture_info),
+            (_, _, Some(normal_texture_info)) => {
+                let texture = match texture_option {
+                    Some(texture_info) => Texture {
+                        coordinates: self.load_texture_coords(
+                            &reader,
+                            &texture_info,
+                            vertex.positions.len(),
+                            &index_buffer_option,
+                        ),
+                        image: self.load_color_image(gltf_images, &texture_info),
+                    },
+                    None => self.load_default_color_texture(vertex_len),
                 };
-                StillPrimitive::TexturedMetal(vertex, texture, texture_metal, pbr)
+                let texture_metal = match metal_texture_option {
+                    Some(texture_info) => Texture {
+                        coordinates: self.load_texture_coords(
+                            &reader,
+                            &texture_info,
+                            vertex.positions.len(),
+                            &index_buffer_option,
+                        ),
+                        image: self.load_metal_image(gltf_images, &texture_info),
+                    },
+                    None => self.load_default_metal_texture(vertex_len),
+                };
+                let normal_tex_coords = self.load_normal_texture_coords(
+                    &reader,
+                    &normal_texture_info,
+                    vertex.positions.len(),
+                    &index_buffer_option,
+                );
+                let tangents =
+                    self.load_tangent(&reader, &vertex, &normal_tex_coords, &index_buffer_option);
+                let texture_normal = Texture {
+                    coordinates: normal_tex_coords,
+                    image: self.load_normal_image(gltf_images, &normal_texture_info),
+                };
+                Primitive::TexturedNormal(
+                    vertex,
+                    texture,
+                    texture_metal,
+                    NormalTexture {
+                        texture: texture_normal,
+                        tangents,
+                    },
+                    pbr,
+                )
             }
         }
     }
@@ -559,6 +554,137 @@ impl<'a, 's> Engine {
         normal_buffer
     }
 
+    fn load_tangent(
+        &self,
+        reader: &Reader<'a, 's, impl Clone + Fn(gltf::Buffer<'a>) -> Option<&'s [u8]>>,
+        vertex: &BaseVertex,
+        texture_coord: &Subbuffer<[TextureCoord]>,
+        index_buffer_option: &Option<Subbuffer<[u32]>>,
+    ) -> Subbuffer<[Tangent]> {
+        let vertex_len = vertex.positions.len();
+        let tangent_buffer_option = reader.read_tangents().map(|buffer| {
+            Buffer::from_iter(
+                self.allocators.memory.clone(),
+                BufferCreateInfo {
+                    usage: BufferUsage::STORAGE_BUFFER.union(BufferUsage::TRANSFER_SRC),
+                    ..Default::default()
+                },
+                AllocationCreateInfo {
+                    memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                        | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                    ..Default::default()
+                },
+                buffer.map(|t| Tangent {
+                    tangent: [t[0], t[1], t[2]],
+                }),
+            )
+            .unwrap()
+        });
+        let tangent_buffer = Buffer::new_slice::<Tangent>(
+            self.allocators.memory.clone(),
+            BufferCreateInfo {
+                usage: BufferUsage::STORAGE_BUFFER
+                    .union(BufferUsage::TRANSFER_DST)
+                    .union(BufferUsage::VERTEX_BUFFER),
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
+                ..Default::default()
+            },
+            vertex_len,
+        )
+        .unwrap();
+        let mut builder = AutoCommandBufferBuilder::primary(
+            &self.allocators.command_buffer,
+            self.queue.queue_family_index(),
+            CommandBufferUsage::OneTimeSubmit,
+        )
+        .unwrap();
+        if let Some(tangent_buffer_temp) = &tangent_buffer_option {
+            if let Some(index_buffer) = &index_buffer_option {
+                let layout = self
+                    .pipelines
+                    .unindex_vec3
+                    .layout()
+                    .set_layouts()
+                    .first()
+                    .unwrap();
+                let set = PersistentDescriptorSet::new(
+                    &self.allocators.descriptor_set,
+                    layout.clone(),
+                    [
+                        WriteDescriptorSet::buffer(0, tangent_buffer_temp.clone()),
+                        WriteDescriptorSet::buffer(1, index_buffer.clone()),
+                        WriteDescriptorSet::buffer(2, tangent_buffer.clone()),
+                    ],
+                    [],
+                )
+                .unwrap();
+                builder
+                    .bind_pipeline_compute(self.pipelines.unindex_vec3.clone())
+                    .unwrap()
+                    .bind_descriptor_sets(
+                        PipelineBindPoint::Compute,
+                        self.pipelines.unindex_vec3.layout().clone(),
+                        0,
+                        set,
+                    )
+                    .unwrap()
+                    .dispatch([index_buffer.len() as u32 / 64 + 1, 1, 1])
+                    .unwrap();
+            } else {
+                builder
+                    .copy_buffer(CopyBufferInfo::buffers(
+                        tangent_buffer_temp.clone(),
+                        tangent_buffer.clone(),
+                    ))
+                    .unwrap();
+            }
+        } else {
+            let layout = self
+                .pipelines
+                .tangent_simple
+                .layout()
+                .set_layouts()
+                .first()
+                .unwrap();
+            let set = PersistentDescriptorSet::new(
+                &self.allocators.descriptor_set,
+                layout.clone(),
+                [
+                    WriteDescriptorSet::buffer(0, vertex.positions.clone()),
+                    WriteDescriptorSet::buffer(1, texture_coord.clone()),
+                    WriteDescriptorSet::buffer(2, vertex.normals.clone()),
+                    WriteDescriptorSet::buffer(3, tangent_buffer.clone()),
+                ],
+                [],
+            )
+            .unwrap();
+            builder
+                .bind_pipeline_compute(self.pipelines.tangent_simple.clone())
+                .unwrap()
+                .bind_descriptor_sets(
+                    PipelineBindPoint::Compute,
+                    self.pipelines.tangent_simple.layout().clone(),
+                    0,
+                    set,
+                )
+                .unwrap()
+                .dispatch([vertex_len as u32 / 3 / 64 + 1, 1, 1])
+                .unwrap();
+        }
+        let command_buffer = builder.build().unwrap();
+
+        let future = sync::now(self.device.clone())
+            .then_execute(self.queue.clone(), command_buffer)
+            .unwrap()
+            .then_signal_fence_and_flush()
+            .unwrap();
+        future.wait(None).unwrap();
+        tangent_buffer
+    }
+
     fn load_vertex(
         &self,
         reader: &Reader<'a, 's, impl Clone + Fn(gltf::Buffer<'a>) -> Option<&'s [u8]>>,
@@ -679,7 +805,7 @@ impl<'a, 's> Engine {
         })
     }
 
-    fn load_default_color_texture(&self, vertex_len: u64) -> Texture {
+    fn load_default_texture_coord(&self, vertex_len: u64) -> Subbuffer<[TextureCoord]> {
         let tex_coord_temp = Buffer::from_iter(
             self.allocators.memory.clone(),
             BufferCreateInfo {
@@ -725,7 +851,14 @@ impl<'a, 's> Engine {
             .then_signal_fence_and_flush()
             .unwrap();
         future.wait(None).unwrap();
-        let temporary_accessible_buffer = Buffer::from_iter(
+        tex_coord
+    }
+
+    fn load_default_texture_image<T>(&self, default_value: T, format: Format) -> Arc<ImageView>
+    where
+        T: BufferContents,
+    {
+        let temporary_accessible_buffer = Buffer::from_data(
             self.allocators.memory.clone(),
             BufferCreateInfo {
                 usage: BufferUsage::TRANSFER_SRC,
@@ -736,7 +869,7 @@ impl<'a, 's> Engine {
                     | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
                 ..Default::default()
             },
-            [[u8::MAX; 4]; 1],
+            default_value,
         )
         .unwrap();
 
@@ -744,7 +877,7 @@ impl<'a, 's> Engine {
             self.allocators.memory.clone(),
             ImageCreateInfo {
                 image_type: ImageType::Dim2d,
-                format: Format::R8G8B8A8_SRGB,
+                format,
                 extent: [1, 1, 1],
                 usage: ImageUsage::TRANSFER_DST | ImageUsage::SAMPLED,
                 ..Default::default()
@@ -771,16 +904,123 @@ impl<'a, 's> Engine {
             .then_signal_fence_and_flush()
             .unwrap();
         future.wait(None).unwrap();
-        Texture {
-            coordinates: tex_coord,
-            image: ImageView::new_default(image).unwrap(),
-        }
+        ImageView::new_default(image).unwrap()
+    }
+
+    fn load_default_color_texture(&self, vertex_len: u64) -> Texture {
+        let image = self.load_default_texture_image([u8::MAX; 4], Format::R8G8B8A8_SRGB);
+        let coordinates = self.load_default_texture_coord(vertex_len);
+        Texture { coordinates, image }
+    }
+
+    fn load_default_metal_texture(&self, vertex_len: u64) -> Texture {
+        let image = self.load_default_texture_image([u8::MAX, u8::MAX], Format::R8G8_UNORM);
+        let coordinates = self.load_default_texture_coord(vertex_len);
+        Texture { coordinates, image }
+    }
+
+    fn load_default_normal_texture(&self, vertex_len: u64) -> Texture {
+        let image = self.load_default_texture_image([0, 0, u8::MAX, 0], Format::R8G8B8A8_UNORM);
+        let coordinates = self.load_default_texture_coord(vertex_len);
+        Texture { coordinates, image }
     }
 
     fn load_texture_coords(
         &self,
         reader: &Reader<'a, 's, impl Clone + Fn(gltf::Buffer<'a>) -> Option<&'s [u8]>>,
         texture_info: &Info,
+        vertex_len: u64,
+        index_buffer_option: &Option<Subbuffer<[u32]>>,
+    ) -> Subbuffer<[TextureCoord]> {
+        let tex_coord_temp = Buffer::from_iter(
+            self.allocators.memory.clone(),
+            BufferCreateInfo {
+                usage: BufferUsage::STORAGE_BUFFER.union(BufferUsage::TRANSFER_SRC),
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                ..Default::default()
+            },
+            reader
+                .read_tex_coords(texture_info.tex_coord())
+                .unwrap()
+                .into_f32()
+                .map(|c| TextureCoord { tex_coords_in: c }),
+        )
+        .unwrap();
+        let tex_coord = Buffer::new_slice::<TextureCoord>(
+            self.allocators.memory.clone(),
+            BufferCreateInfo {
+                usage: BufferUsage::STORAGE_BUFFER
+                    .union(BufferUsage::TRANSFER_DST)
+                    .union(BufferUsage::VERTEX_BUFFER),
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
+                ..Default::default()
+            },
+            vertex_len,
+        )
+        .unwrap();
+        let mut builder = AutoCommandBufferBuilder::primary(
+            &self.allocators.command_buffer,
+            self.queue.queue_family_index(),
+            CommandBufferUsage::OneTimeSubmit,
+        )
+        .unwrap();
+        if let Some(index_buffer) = index_buffer_option {
+            let layout = self
+                .pipelines
+                .unindex_vec2
+                .layout()
+                .set_layouts()
+                .first()
+                .unwrap();
+            let set = PersistentDescriptorSet::new(
+                &self.allocators.descriptor_set,
+                layout.clone(),
+                [
+                    WriteDescriptorSet::buffer(0, tex_coord_temp),
+                    WriteDescriptorSet::buffer(1, index_buffer.clone()),
+                    WriteDescriptorSet::buffer(2, tex_coord.clone()),
+                ],
+                [],
+            )
+            .unwrap();
+            builder
+                .bind_pipeline_compute(self.pipelines.unindex_vec2.clone())
+                .unwrap()
+                .bind_descriptor_sets(
+                    PipelineBindPoint::Compute,
+                    self.pipelines.unindex_vec2.layout().clone(),
+                    0,
+                    set,
+                )
+                .unwrap()
+                .dispatch([index_buffer.len() as u32 / 64 + 1, 1, 1])
+                .unwrap();
+        } else {
+            builder
+                .copy_buffer(CopyBufferInfo::buffers(tex_coord_temp, tex_coord.clone()))
+                .unwrap();
+        }
+        let command_buffer = builder.build().unwrap();
+        let future = sync::now(self.device.clone())
+            .then_execute(self.queue.clone(), command_buffer)
+            .unwrap()
+            .then_signal_fence_and_flush()
+            .unwrap();
+        future.wait(None).unwrap();
+        tex_coord
+    }
+
+    fn load_normal_texture_coords(
+        &self,
+        reader: &Reader<'a, 's, impl Clone + Fn(gltf::Buffer<'a>) -> Option<&'s [u8]>>,
+        texture_info: &gltf::material::NormalTexture,
         vertex_len: u64,
         index_buffer_option: &Option<Subbuffer<[u32]>>,
     ) -> Subbuffer<[TextureCoord]> {
@@ -944,6 +1184,62 @@ impl<'a, 's> Engine {
             ImageCreateInfo {
                 image_type: ImageType::Dim2d,
                 format: Format::R8G8_UNORM,
+                extent,
+                usage: ImageUsage::TRANSFER_DST | ImageUsage::SAMPLED,
+                ..Default::default()
+            },
+            AllocationCreateInfo::default(),
+        )
+        .unwrap();
+        let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
+            &self.allocators.command_buffer,
+            self.queue.queue_family_index(),
+            CommandBufferUsage::OneTimeSubmit,
+        )
+        .unwrap();
+        command_buffer_builder
+            .copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(
+                temporary_accessible_buffer,
+                image.clone(),
+            ))
+            .unwrap();
+        let command_buffer = command_buffer_builder.build().unwrap();
+        let future = sync::now(self.device.clone())
+            .then_execute(self.queue.clone(), command_buffer)
+            .unwrap()
+            .then_signal_fence_and_flush()
+            .unwrap();
+        future.wait(None).unwrap();
+        ImageView::new_default(image).unwrap()
+    }
+
+    fn load_normal_image(
+        &self,
+        images: &[Data],
+        texture_info: &gltf::material::NormalTexture,
+    ) -> Arc<ImageView> {
+        let image_data = &images[texture_info.texture().source().index()];
+        let extent = [image_data.width, image_data.height, 1];
+        let temporary_accessible_buffer = Buffer::from_iter(
+            self.allocators.memory.clone(),
+            BufferCreateInfo {
+                usage: BufferUsage::TRANSFER_SRC,
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                ..Default::default()
+            },
+            color_texture::convert_texture(image_data),
+        )
+        .unwrap();
+
+        let image = Image::new(
+            self.allocators.memory.clone(),
+            ImageCreateInfo {
+                image_type: ImageType::Dim2d,
+                format: Format::R8G8B8A8_UNORM,
                 extent,
                 usage: ImageUsage::TRANSFER_DST | ImageUsage::SAMPLED,
                 ..Default::default()

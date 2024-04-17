@@ -61,6 +61,27 @@ pub mod textured_metal_fragment_shader {
     }
 }
 
+pub mod textured_normal_vertex_shader {
+    vulkano_shaders::shader! {
+        ty: "vertex",
+        path: "src/graphics/shaders/textured_normal_vertex.glsl",
+    }
+}
+
+pub mod textured_normal_animated_vertex_shader {
+    vulkano_shaders::shader! {
+        ty: "vertex",
+        path: "src/graphics/shaders/textured_normal_animated_vertex.glsl",
+    }
+}
+
+pub mod textured_normal_fragment_shader {
+    vulkano_shaders::shader! {
+        ty: "fragment",
+        path: "src/graphics/shaders/textured_normal_fragment.glsl",
+    }
+}
+
 pub mod unindex_uvec4_shader {
     vulkano_shaders::shader! {
         ty: "compute",
@@ -92,6 +113,13 @@ pub mod normal_shader {
     vulkano_shaders::shader! {
         ty: "compute",
         path: "src/graphics/shaders/normal.glsl"
+    }
+}
+
+pub mod tangent_simple_shader {
+    vulkano_shaders::shader! {
+        ty: "compute",
+        path: "src/graphics/shaders/tangent_simple.glsl"
     }
 }
 
