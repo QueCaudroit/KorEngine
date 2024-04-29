@@ -16,6 +16,10 @@ path = "src/lib.rs"
 name = "example"
 path = "src/main.rs"
 
+[[bin]]
+name = "example2"
+path = "src/main2.rs"
+
 [dependencies]
 gltf = "1.0"
 image = "0.24"

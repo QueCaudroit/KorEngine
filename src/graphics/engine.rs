@@ -17,7 +17,7 @@ use vulkano::{
     image::{
         sampler::{Sampler, SamplerCreateInfo},
         view::ImageView,
-        Image, ImageCreateInfo, ImageType, ImageUsage,
+        Image, ImageCreateInfo, ImageType, ImageUsage, SampleCount,
     },
     instance::{Instance, InstanceCreateFlags, InstanceCreateInfo, InstanceExtensions},
     memory::allocator::{AllocationCreateInfo, MemoryAllocator, MemoryTypeFilter},
@@ -178,7 +178,7 @@ impl Engine {
                 min_image_count: caps.min_image_count + 1,
                 image_format: IMAGE_FORMAT,
                 image_extent: window.inner_size().into(),
-                image_usage: ImageUsage::COLOR_ATTACHMENT,
+                image_usage: ImageUsage::COLOR_ATTACHMENT | ImageUsage::TRANSFER_DST,
                 composite_alpha,
                 ..Default::default()
             },
@@ -255,7 +255,7 @@ impl Engine {
         builder
             .begin_render_pass(
                 RenderPassBeginInfo {
-                    clear_values: vec![Some([0.0, 0.0, 0.0, 1.0].into()), Some(1f32.into())],
+                    clear_values: vec![Some([0.0, 0.0, 0.0, 1.0].into()), None, Some(1f32.into())],
                     ..RenderPassBeginInfo::framebuffer(framebuffer)
                 },
                 SubpassBeginInfo {
@@ -1068,21 +1068,28 @@ fn get_render_pass(device: Arc<Device>) -> Arc<RenderPass> {
     vulkano::single_pass_renderpass!(
         device,
         attachments: {
+            intermediary: {
+                format: IMAGE_FORMAT,
+                samples: 4,
+                load_op: Clear,
+                store_op: DontCare,
+            },
             color: {
                 format: IMAGE_FORMAT,
                 samples: 1,
-                load_op: Clear,
+                load_op: DontCare,
                 store_op: Store,
             },
             depth_stencil: {
                 format: DEPTH_FORMAT,
-                samples: 1,
+                samples: 4,
                 load_op: Clear,
                 store_op: DontCare,
             }
         },
         pass: {
-            color: [color],
+            color: [intermediary],
+            color_resolve: [color],
             depth_stencil: {depth_stencil}
         }
     )
@@ -1094,6 +1101,22 @@ fn get_framebuffers(
     images: &[Arc<Image>],
     render_pass: Arc<RenderPass>,
 ) -> Vec<Arc<Framebuffer>> {
+    let intermediary = ImageView::new_default(
+        Image::new(
+            memory_allocator.clone(),
+            ImageCreateInfo {
+                image_type: ImageType::Dim2d,
+                format: images[0].format(),
+                extent: images[0].extent(),
+                usage: ImageUsage::COLOR_ATTACHMENT | ImageUsage::TRANSIENT_ATTACHMENT,
+                samples: SampleCount::Sample4,
+                ..Default::default()
+            },
+            AllocationCreateInfo::default(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
     let depth_buffer = ImageView::new_default(
         Image::new(
             memory_allocator,
@@ -1102,6 +1125,7 @@ fn get_framebuffers(
                 format: DEPTH_FORMAT,
                 extent: images[0].extent(),
                 usage: ImageUsage::DEPTH_STENCIL_ATTACHMENT | ImageUsage::TRANSIENT_ATTACHMENT,
+                samples: SampleCount::Sample4,
                 ..Default::default()
             },
             AllocationCreateInfo::default(),
@@ -1116,7 +1140,7 @@ fn get_framebuffers(
             Framebuffer::new(
                 render_pass.clone(),
                 FramebufferCreateInfo {
-                    attachments: vec![view, depth_buffer.clone()],
+                    attachments: vec![intermediary.clone(), view, depth_buffer.clone()],
                     ..Default::default()
                 },
             )

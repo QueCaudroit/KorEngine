@@ -504,7 +504,10 @@ fn build_graphics_pipeline(
                 depth: Some(DepthState::simple()),
                 ..Default::default()
             }),
-            multisample_state: Some(MultisampleState::default()),
+            multisample_state: Some(MultisampleState {
+                rasterization_samples: subpass.num_samples().unwrap(),
+                ..Default::default()
+            }),
             color_blend_state: Some(ColorBlendState::with_attachment_states(
                 subpass.num_color_attachments(),
                 ColorBlendAttachmentState::default(),

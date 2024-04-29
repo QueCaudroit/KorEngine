@@ -39,9 +39,9 @@ void main() {
     roughness = roughness * roughness * roughness * roughness;
     float non_roughness = 1 - roughness;
     float microfacet_distribution_coeff = 1 - non_roughness * NH * NH;
-    float visibility_coeff = (NL + sqrt(roughness + non_roughness * NL * NL)) * (NV + sqrt(roughness + non_roughness * NV * NV));
+    float visibility_coeff = (abs(NL) + sqrt(roughness + non_roughness * NL * NL)) * (abs(NV) + sqrt(roughness + non_roughness * NV * NV));
     float specular;
-    if (NL <= 0.0 || NV <= 0.0) {
+    if (NH <= 0.0) {
         specular = 0.0;
     } else {
         specular = max(roughness / (visibility_coeff * microfacet_distribution_coeff * microfacet_distribution_coeff), 0.0);

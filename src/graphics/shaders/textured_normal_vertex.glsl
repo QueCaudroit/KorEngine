@@ -32,4 +32,5 @@ void main() {
     tangent_direction = normalize((model * vec4(tangent, 0.0)).xyz);
     tex_coords = tex_coords_in;
     tex_metal_coords = tex_metal_coords_in;
+    tex_normal_coords = tex_normal_coords_in;
 }
