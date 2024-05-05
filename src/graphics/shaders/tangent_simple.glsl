@@ -33,16 +33,27 @@ void main() {
     vec2 uv_ab = uv_b - uv_a;
     vec2 uv_ac = uv_c - uv_a;
 
-    float det = 1 / (uv_ab.x * uv_ac.y - uv_ac.x * uv_ab.y);
-    vec3 tangent_raw = det * uv_ac.y * ab - det * uv_ab.y * ac;
-
     vec3 na = vec3(normal[9*idx], normal[9*idx + 1], normal[9*idx + 2]);
     vec3 nb = vec3(normal[9*idx + 3], normal[9*idx + 4], normal[9*idx + 5]);
     vec3 nc = vec3(normal[9*idx + 6], normal[9*idx + 7], normal[9*idx + 8]);
 
-    vec3 tangent_a = normalize(tangent_raw - na * dot(tangent_raw, na));
-    vec3 tangent_b = normalize(tangent_raw - nb * dot(tangent_raw, nb));
-    vec3 tangent_c = normalize(tangent_raw - nc * dot(tangent_raw, nc));
+    float det = (uv_ab.x * uv_ac.y - uv_ac.x * uv_ab.y);
+    
+
+    vec3 tangent_a;
+    vec3 tangent_b;
+    vec3 tangent_c;
+    if (det != 0.0) {
+        det = 1 / det;
+        vec3 tangent_raw = det * uv_ac.y * ab - det * uv_ab.y * ac;
+        tangent_a = normalize(tangent_raw - na * dot(tangent_raw, na));
+        tangent_b = normalize(tangent_raw - nb * dot(tangent_raw, nb));
+        tangent_c = normalize(tangent_raw - nc * dot(tangent_raw, nc));
+    } else {
+        tangent_a = normalize(vec3(-na.y - na.z, na.x, na.x));
+        tangent_b = normalize(vec3(-nb.y - nb.z, nb.x, nb.x));
+        tangent_c = normalize(vec3(-nc.y - nc.z, nc.x, nc.x));
+    }
 
     tangent[9*idx] = tangent_a.x;
     tangent[9*idx + 1] = tangent_a.y;

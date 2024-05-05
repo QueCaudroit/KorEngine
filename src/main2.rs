@@ -2,7 +2,7 @@ use image::io::Reader as ImageReader;
 use winit::{event::VirtualKeyCode, event_loop::EventLoop, window::Icon, window::WindowBuilder};
 
 use kor_engine::{
-    geometry::Transform, graphics::load_gltf::Asset, input::Input, run, DisplayRequest, Drawer,
+    geometry::Transform, graphics::engine::Asset, input::Input, run, DisplayRequest, Drawer,
     GameScene, GameSceneState, Loader,
 };
 
@@ -39,15 +39,14 @@ impl GameScene for Scene {
     }
 
     fn update(&mut self, input: &Input) -> GameSceneState {
-        self.camera_angle_y =
-            self.camera_angle_y - input.mouse.raw_x as f32 * ROTATION_SPEED * FRAME_TIME;
+        self.camera_angle_y -= input.mouse.raw_x as f32 * ROTATION_SPEED * FRAME_TIME;
         self.camera_angle_x = (self.camera_angle_x
-            - input.mouse.raw_y as f32 * ROTATION_SPEED * FRAME_TIME)
+            + input.mouse.raw_y as f32 * ROTATION_SPEED * FRAME_TIME)
             .clamp(-ANGLE_X_MAX, ANGLE_X_MAX);
         if input.keyboard.keys[VirtualKeyCode::D as usize].state {
-            self.angle = self.angle - ROTATION_SPEED * FRAME_TIME;
+            self.angle -= ROTATION_SPEED * FRAME_TIME;
         } else if input.keyboard.keys[VirtualKeyCode::A as usize].state {
-            self.angle = self.angle + ROTATION_SPEED * FRAME_TIME;
+            self.angle += ROTATION_SPEED * FRAME_TIME;
         } else if input.keyboard.keys[VirtualKeyCode::W as usize].state {
             self.distance = DISTANCE_MIN.max(self.distance - TRANSLATION_SPEED * FRAME_TIME);
         } else if input.keyboard.keys[VirtualKeyCode::S as usize].state {

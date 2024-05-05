@@ -1,84 +1,21 @@
-pub mod basic_fragment_shader {
+pub mod vertex_shader {
+    vulkano_shaders::shader! {
+        ty: "vertex",
+        path: "src/graphics/shaders/vertex.glsl",
+    }
+}
+
+pub mod animated_vertex_shader {
+    vulkano_shaders::shader! {
+        ty: "vertex",
+        path: "src/graphics/shaders/animated_vertex.glsl",
+    }
+}
+
+pub mod fragment_shader {
     vulkano_shaders::shader! {
         ty: "fragment",
-        path: "src/graphics/shaders/basic_fragment.glsl"
-    }
-}
-
-pub mod basic_vertex_shader {
-    vulkano_shaders::shader! {
-        ty: "vertex",
-        path: "src/graphics/shaders/basic_vertex.glsl"
-    }
-}
-
-pub mod basic_animated_vertex_shader {
-    vulkano_shaders::shader! {
-        ty: "vertex",
-        path: "src/graphics/shaders/basic_animated_vertex.glsl"
-    }
-}
-
-pub mod textured_vertex_shader {
-    vulkano_shaders::shader! {
-        ty: "vertex",
-        path: "src/graphics/shaders/textured_vertex.glsl",
-    }
-}
-
-pub mod textured_animated_vertex_shader {
-    vulkano_shaders::shader! {
-        ty: "vertex",
-        path: "src/graphics/shaders/textured_animated_vertex.glsl",
-    }
-}
-
-pub mod textured_fragment_shader {
-    vulkano_shaders::shader! {
-        ty: "fragment",
-        path: "src/graphics/shaders/textured_fragment.glsl",
-    }
-}
-
-pub mod textured_metal_vertex_shader {
-    vulkano_shaders::shader! {
-        ty: "vertex",
-        path: "src/graphics/shaders/textured_metal_vertex.glsl",
-    }
-}
-
-pub mod textured_metal_animated_vertex_shader {
-    vulkano_shaders::shader! {
-        ty: "vertex",
-        path: "src/graphics/shaders/textured_metal_animated_vertex.glsl",
-    }
-}
-
-pub mod textured_metal_fragment_shader {
-    vulkano_shaders::shader! {
-        ty: "fragment",
-        path: "src/graphics/shaders/textured_metal_fragment.glsl",
-    }
-}
-
-pub mod textured_normal_vertex_shader {
-    vulkano_shaders::shader! {
-        ty: "vertex",
-        path: "src/graphics/shaders/textured_normal_vertex.glsl",
-    }
-}
-
-pub mod textured_normal_animated_vertex_shader {
-    vulkano_shaders::shader! {
-        ty: "vertex",
-        path: "src/graphics/shaders/textured_normal_animated_vertex.glsl",
-    }
-}
-
-pub mod textured_normal_fragment_shader {
-    vulkano_shaders::shader! {
-        ty: "fragment",
-        path: "src/graphics/shaders/textured_normal_fragment.glsl",
+        path: "src/graphics/shaders/fragment.glsl",
     }
 }
 

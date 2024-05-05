@@ -33,18 +33,12 @@ use vulkano::{
 use winit::window::Window;
 
 use crate::{
+    animation_system::animator::Animator,
     geometry::Transform,
     graphics::{
         allocators::AllocatorCollection,
-        load_gltf::{AnimatedPrimitive, Asset, Primitive},
         pipeline::PipelineCollection,
-        shaders::{
-            basic_animated_vertex_shader, basic_fragment_shader, basic_vertex_shader,
-            textured_animated_vertex_shader, textured_fragment_shader,
-            textured_metal_animated_vertex_shader, textured_metal_fragment_shader,
-            textured_metal_vertex_shader, textured_normal_animated_vertex_shader,
-            textured_normal_fragment_shader, textured_normal_vertex_shader, textured_vertex_shader,
-        },
+        shaders::{animated_vertex_shader, fragment_shader, vertex_shader},
     },
     DisplayRequest, Drawer,
 };
@@ -69,6 +63,7 @@ pub struct Normal {
 pub struct BaseVertex {
     pub positions: Subbuffer<[Position]>,
     pub normals: Subbuffer<[Normal]>,
+    pub tangents: Subbuffer<[Tangent]>,
 }
 
 #[derive(BufferContents, Vertex)]
@@ -95,11 +90,6 @@ pub struct Texture {
 pub struct Tangent {
     #[format(R32G32B32_SFLOAT)]
     pub tangent: [f32; 3],
-}
-
-pub struct NormalTexture {
-    pub texture: Texture,
-    pub tangents: Subbuffer<[Tangent]>,
 }
 
 #[derive(BufferContents, Vertex)]
@@ -146,6 +136,24 @@ pub struct Joint {
 pub struct Skin {
     pub joints: Subbuffer<[Joint]>,
     pub weights: Subbuffer<[Weight]>,
+}
+
+pub enum Asset {
+    Animated(Vec<AnimatedPrimitive>, Animator),
+    Still(Vec<Primitive>),
+}
+
+pub struct AnimatedPrimitive {
+    pub primitive: Primitive,
+    pub skin: Skin,
+}
+
+pub struct Primitive {
+    pub vertex: BaseVertex,
+    pub color: Texture,
+    pub metalness: Texture,
+    pub normal: Texture,
+    pub pbr: PBRFactors,
 }
 
 pub struct Engine {
@@ -289,252 +297,76 @@ impl Engine {
                 .project_perspective(FRAC_PI_2, 16.0 / 9.0, 0.1, 100.0);
         let camera_position = camera_transform.translation;
         let instance_count = item_pos.len() as u32;
-        match primitive {
-            Primitive::Basic(vertex, pbr) => {
-                let vertex_count = vertex.positions.len() as u32;
-                let vertex_uniform = self.uniform_buffer.allocate_sized().unwrap();
-                *vertex_uniform.write().unwrap() = basic_vertex_shader::UniformBufferObject {
-                    view_proj,
-                    light_position: light_position.into(),
-                    camera_position,
-                };
-                let fragment_uniform = self.uniform_buffer.allocate_sized().unwrap();
-                *fragment_uniform.write().unwrap() = basic_fragment_shader::UniformBufferObject {
-                    color: pbr.color,
-                    metalness: pbr.metalness,
-                    roughness: pbr.roughness,
-                };
-                let layout = self.pipelines.basic.layout().set_layouts().first().unwrap();
-                let descriptor_set = PersistentDescriptorSet::new(
-                    &self.allocators.descriptor_set,
-                    layout.clone(),
-                    [
-                        WriteDescriptorSet::buffer(0, vertex_uniform),
-                        WriteDescriptorSet::buffer(1, fragment_uniform),
-                    ],
-                    [],
-                )
-                .unwrap();
-                builder
-                    .bind_pipeline_graphics(self.pipelines.basic.clone())
-                    .unwrap()
-                    .bind_descriptor_sets(
-                        PipelineBindPoint::Graphics,
-                        self.pipelines.basic.layout().clone(),
-                        0,
-                        descriptor_set,
-                    )
-                    .unwrap()
-                    .bind_vertex_buffers(
-                        0,
-                        (vertex.positions.clone(), vertex.normals.clone(), item_pos),
-                    )
-                    .unwrap()
-                    .draw(vertex_count, instance_count, 0, 0)
-                    .unwrap();
-            }
-            Primitive::Textured(vertex, texture, pbr) => {
-                let vertex_count = vertex.positions.len() as u32;
-                let vertex_uniform = self.uniform_buffer.allocate_sized().unwrap();
-                *vertex_uniform.write().unwrap() = textured_vertex_shader::UniformBufferObject {
-                    view_proj,
-                    light_position: light_position.into(),
-                    camera_position,
-                };
-                let fragment_uniform = self.uniform_buffer.allocate_sized().unwrap();
-                *fragment_uniform.write().unwrap() =
-                    textured_fragment_shader::UniformBufferObject {
-                        color: pbr.color,
-                        metalness: pbr.metalness,
-                        roughness: pbr.roughness,
-                    };
-                let layout = self
-                    .pipelines
-                    .textured
-                    .layout()
-                    .set_layouts()
-                    .first()
-                    .unwrap();
-                let descriptor_set = PersistentDescriptorSet::new(
-                    &self.allocators.descriptor_set,
-                    layout.clone(),
-                    [
-                        WriteDescriptorSet::buffer(0, vertex_uniform),
-                        WriteDescriptorSet::buffer(1, fragment_uniform),
-                        WriteDescriptorSet::image_view_sampler(
-                            3,
-                            texture.image.clone(),
-                            self.sampler.clone(),
-                        ),
-                    ],
-                    [],
-                )
-                .unwrap();
-                builder
-                    .bind_pipeline_graphics(self.pipelines.textured.clone())
-                    .unwrap()
-                    .bind_descriptor_sets(
-                        PipelineBindPoint::Graphics,
-                        self.pipelines.textured.layout().clone(),
-                        0,
-                        descriptor_set,
-                    )
-                    .unwrap()
-                    .bind_vertex_buffers(
-                        0,
-                        (
-                            vertex.positions.clone(),
-                            vertex.normals.clone(),
-                            item_pos,
-                            texture.coordinates.clone(),
-                        ),
-                    )
-                    .unwrap()
-                    .draw(vertex_count, instance_count, 0, 0)
-                    .unwrap();
-            }
-            Primitive::TexturedMetal(vertex, texture, texture_metal, pbr) => {
-                let vertex_count = vertex.positions.len() as u32;
-                let vertex_uniform = self.uniform_buffer.allocate_sized().unwrap();
-                *vertex_uniform.write().unwrap() =
-                    textured_metal_vertex_shader::UniformBufferObject {
-                        view_proj,
-                        light_position: light_position.into(),
-                        camera_position,
-                    };
-                let fragment_uniform = self.uniform_buffer.allocate_sized().unwrap();
-                *fragment_uniform.write().unwrap() =
-                    textured_metal_fragment_shader::UniformBufferObject {
-                        color: pbr.color,
-                        metalness: pbr.metalness,
-                        roughness: pbr.roughness,
-                    };
-                let layout = self
-                    .pipelines
-                    .textured_metal
-                    .layout()
-                    .set_layouts()
-                    .first()
-                    .unwrap();
-                let descriptor_set = PersistentDescriptorSet::new(
-                    &self.allocators.descriptor_set,
-                    layout.clone(),
-                    [
-                        WriteDescriptorSet::buffer(0, vertex_uniform),
-                        WriteDescriptorSet::buffer(1, fragment_uniform),
-                        WriteDescriptorSet::image_view_sampler(
-                            3,
-                            texture.image.clone(),
-                            self.sampler.clone(),
-                        ),
-                        WriteDescriptorSet::image_view_sampler(
-                            4,
-                            texture_metal.image.clone(),
-                            self.sampler.clone(),
-                        ),
-                    ],
-                    [],
-                )
-                .unwrap();
-                builder
-                    .bind_pipeline_graphics(self.pipelines.textured_metal.clone())
-                    .unwrap()
-                    .bind_descriptor_sets(
-                        PipelineBindPoint::Graphics,
-                        self.pipelines.textured_metal.layout().clone(),
-                        0,
-                        descriptor_set,
-                    )
-                    .unwrap()
-                    .bind_vertex_buffers(
-                        0,
-                        (
-                            vertex.positions.clone(),
-                            vertex.normals.clone(),
-                            item_pos,
-                            texture.coordinates.clone(),
-                            texture_metal.coordinates.clone(),
-                        ),
-                    )
-                    .unwrap()
-                    .draw(vertex_count, instance_count, 0, 0)
-                    .unwrap();
-            }
-            Primitive::TexturedNormal(vertex, texture, texture_metal, texture_normal, pbr) => {
-                let vertex_count = vertex.positions.len() as u32;
-                let vertex_uniform = self.uniform_buffer.allocate_sized().unwrap();
-                *vertex_uniform.write().unwrap() =
-                    textured_normal_vertex_shader::UniformBufferObject {
-                        view_proj,
-                        light_position: light_position.into(),
-                        camera_position,
-                    };
-                let fragment_uniform = self.uniform_buffer.allocate_sized().unwrap();
-                *fragment_uniform.write().unwrap() =
-                    textured_normal_fragment_shader::UniformBufferObject {
-                        color: pbr.color,
-                        metalness: pbr.metalness,
-                        roughness: pbr.roughness,
-                    };
-                let layout = self
-                    .pipelines
-                    .textured_normal
-                    .layout()
-                    .set_layouts()
-                    .first()
-                    .unwrap();
-                let descriptor_set = PersistentDescriptorSet::new(
-                    &self.allocators.descriptor_set,
-                    layout.clone(),
-                    [
-                        WriteDescriptorSet::buffer(0, vertex_uniform),
-                        WriteDescriptorSet::buffer(1, fragment_uniform),
-                        WriteDescriptorSet::image_view_sampler(
-                            3,
-                            texture.image.clone(),
-                            self.sampler.clone(),
-                        ),
-                        WriteDescriptorSet::image_view_sampler(
-                            4,
-                            texture_metal.image.clone(),
-                            self.sampler.clone(),
-                        ),
-                        WriteDescriptorSet::image_view_sampler(
-                            5,
-                            texture_normal.texture.image.clone(),
-                            self.sampler.clone(),
-                        ),
-                    ],
-                    [],
-                )
-                .unwrap();
-                builder
-                    .bind_pipeline_graphics(self.pipelines.textured_normal.clone())
-                    .unwrap()
-                    .bind_descriptor_sets(
-                        PipelineBindPoint::Graphics,
-                        self.pipelines.textured_normal.layout().clone(),
-                        0,
-                        descriptor_set,
-                    )
-                    .unwrap()
-                    .bind_vertex_buffers(
-                        0,
-                        (
-                            vertex.positions.clone(),
-                            vertex.normals.clone(),
-                            item_pos,
-                            texture.coordinates.clone(),
-                            texture_metal.coordinates.clone(),
-                            texture_normal.texture.coordinates.clone(),
-                            texture_normal.tangents.clone(),
-                        ),
-                    )
-                    .unwrap()
-                    .draw(vertex_count, instance_count, 0, 0)
-                    .unwrap();
-            }
-        }
+        let vertex_count = primitive.vertex.positions.len() as u32;
+        let vertex_uniform = self.uniform_buffer.allocate_sized().unwrap();
+        *vertex_uniform.write().unwrap() = vertex_shader::UniformBufferObject {
+            view_proj,
+            light_position: light_position.into(),
+            camera_position,
+        };
+        let fragment_uniform = self.uniform_buffer.allocate_sized().unwrap();
+        *fragment_uniform.write().unwrap() = fragment_shader::UniformBufferObject {
+            color: primitive.pbr.color,
+            metalness: primitive.pbr.metalness,
+            roughness: primitive.pbr.roughness,
+        };
+        let layout = self
+            .pipelines
+            .graphic
+            .layout()
+            .set_layouts()
+            .first()
+            .unwrap();
+        let descriptor_set = PersistentDescriptorSet::new(
+            &self.allocators.descriptor_set,
+            layout.clone(),
+            [
+                WriteDescriptorSet::buffer(0, vertex_uniform),
+                WriteDescriptorSet::buffer(1, fragment_uniform),
+                WriteDescriptorSet::image_view_sampler(
+                    3,
+                    primitive.color.image.clone(),
+                    self.sampler.clone(),
+                ),
+                WriteDescriptorSet::image_view_sampler(
+                    4,
+                    primitive.metalness.image.clone(),
+                    self.sampler.clone(),
+                ),
+                WriteDescriptorSet::image_view_sampler(
+                    5,
+                    primitive.normal.image.clone(),
+                    self.sampler.clone(),
+                ),
+            ],
+            [],
+        )
+        .unwrap();
+        builder
+            .bind_pipeline_graphics(self.pipelines.graphic.clone())
+            .unwrap()
+            .bind_descriptor_sets(
+                PipelineBindPoint::Graphics,
+                self.pipelines.graphic.layout().clone(),
+                0,
+                descriptor_set,
+            )
+            .unwrap()
+            .bind_vertex_buffers(
+                0,
+                (
+                    primitive.vertex.positions.clone(),
+                    primitive.vertex.normals.clone(),
+                    item_pos,
+                    primitive.color.coordinates.clone(),
+                    primitive.metalness.coordinates.clone(),
+                    primitive.normal.coordinates.clone(),
+                    primitive.vertex.tangents.clone(),
+                ),
+            )
+            .unwrap()
+            .draw(vertex_count, instance_count, 0, 0)
+            .unwrap();
     }
 
     fn add_animated_primitive_to_command_buffer(
@@ -561,336 +393,94 @@ impl Engine {
                 .project_perspective(FRAC_PI_2, 16.0 / 9.0, 0.1, 100.0);
         let camera_position = camera_transform.translation;
         let instance_count = item_pos.len() as u32;
-        match &primitive.primitive {
-            Primitive::Basic(vertex, pbr) => {
-                let pose_buffer = Buffer::from_iter(
-                    self.allocators.memory.clone(),
-                    BufferCreateInfo {
-                        usage: BufferUsage::STORAGE_BUFFER,
-                        ..Default::default()
-                    },
-                    AllocationCreateInfo {
-                        memory_type_filter: MemoryTypeFilter::PREFER_HOST
-                            | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-                        ..Default::default()
-                    },
-                    pose.iter().map(|pose| pose.to_homogeneous()),
-                )
-                .unwrap();
-                let vertex_count = vertex.positions.len() as u32;
-                let vertex_uniform = self.uniform_buffer.allocate_sized().unwrap();
-                *vertex_uniform.write().unwrap() =
-                    basic_animated_vertex_shader::UniformBufferObject {
-                        view_proj,
-                        light_position: light_position.into(),
-                        camera_position,
-                        transform_length: pose_buffer.len() as u32 / instance_count,
-                    };
-                let fragment_uniform = self.uniform_buffer.allocate_sized().unwrap();
-                *fragment_uniform.write().unwrap() = basic_fragment_shader::UniformBufferObject {
-                    color: pbr.color,
-                    metalness: pbr.metalness,
-                    roughness: pbr.roughness,
-                };
-                let layout = self
-                    .pipelines
-                    .basic_animated
-                    .layout()
-                    .set_layouts()
-                    .first()
-                    .unwrap();
-                let descriptor_set = PersistentDescriptorSet::new(
-                    &self.allocators.descriptor_set,
-                    layout.clone(),
-                    [
-                        WriteDescriptorSet::buffer(0, vertex_uniform),
-                        WriteDescriptorSet::buffer(1, fragment_uniform),
-                        WriteDescriptorSet::buffer(2, pose_buffer),
-                    ],
-                    [],
-                )
-                .unwrap();
-                builder
-                    .bind_pipeline_graphics(self.pipelines.basic_animated.clone())
-                    .unwrap()
-                    .bind_descriptor_sets(
-                        PipelineBindPoint::Graphics,
-                        self.pipelines.basic_animated.layout().clone(),
-                        0,
-                        descriptor_set,
-                    )
-                    .unwrap()
-                    .bind_vertex_buffers(
-                        0,
-                        (
-                            vertex.positions.clone(),
-                            vertex.normals.clone(),
-                            item_pos,
-                            primitive.skin.weights.clone(),
-                            primitive.skin.joints.clone(),
-                        ),
-                    )
-                    .unwrap()
-                    .draw(vertex_count, instance_count, 0, 0)
-                    .unwrap();
-            }
-            Primitive::Textured(vertex, texture, pbr) => {
-                let pose_buffer = Buffer::from_iter(
-                    self.allocators.memory.clone(),
-                    BufferCreateInfo {
-                        usage: BufferUsage::STORAGE_BUFFER,
-                        ..Default::default()
-                    },
-                    AllocationCreateInfo {
-                        memory_type_filter: MemoryTypeFilter::PREFER_HOST
-                            | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-                        ..Default::default()
-                    },
-                    pose.iter().map(|pose| pose.to_homogeneous()),
-                )
-                .unwrap();
-                let vertex_count = vertex.positions.len() as u32;
-                let vertex_uniform = self.uniform_buffer.allocate_sized().unwrap();
-                *vertex_uniform.write().unwrap() =
-                    textured_animated_vertex_shader::UniformBufferObject {
-                        view_proj,
-                        light_position: light_position.into(),
-                        camera_position,
-                        transform_length: pose_buffer.len() as u32 / instance_count,
-                    };
-                let fragment_uniform = self.uniform_buffer.allocate_sized().unwrap();
-                *fragment_uniform.write().unwrap() =
-                    textured_fragment_shader::UniformBufferObject {
-                        color: pbr.color,
-                        metalness: pbr.metalness,
-                        roughness: pbr.roughness,
-                    };
-                let layout = self
-                    .pipelines
-                    .textured_animated
-                    .layout()
-                    .set_layouts()
-                    .first()
-                    .unwrap();
-                let descriptor_set = PersistentDescriptorSet::new(
-                    &self.allocators.descriptor_set,
-                    layout.clone(),
-                    [
-                        WriteDescriptorSet::buffer(0, vertex_uniform),
-                        WriteDescriptorSet::buffer(1, fragment_uniform),
-                        WriteDescriptorSet::buffer(2, pose_buffer),
-                        WriteDescriptorSet::image_view_sampler(
-                            3,
-                            texture.image.clone(),
-                            self.sampler.clone(),
-                        ),
-                    ],
-                    [],
-                )
-                .unwrap();
-                builder
-                    .bind_pipeline_graphics(self.pipelines.textured_animated.clone())
-                    .unwrap()
-                    .bind_descriptor_sets(
-                        PipelineBindPoint::Graphics,
-                        self.pipelines.textured_animated.layout().clone(),
-                        0,
-                        descriptor_set,
-                    )
-                    .unwrap()
-                    .bind_vertex_buffers(
-                        0,
-                        (
-                            vertex.positions.clone(),
-                            vertex.normals.clone(),
-                            item_pos,
-                            primitive.skin.weights.clone(),
-                            primitive.skin.joints.clone(),
-                            texture.coordinates.clone(),
-                        ),
-                    )
-                    .unwrap()
-                    .draw(vertex_count, instance_count, 0, 0)
-                    .unwrap();
-            }
-            Primitive::TexturedMetal(vertex, texture, texture_metal, pbr) => {
-                let pose_buffer = Buffer::from_iter(
-                    self.allocators.memory.clone(),
-                    BufferCreateInfo {
-                        usage: BufferUsage::STORAGE_BUFFER,
-                        ..Default::default()
-                    },
-                    AllocationCreateInfo {
-                        memory_type_filter: MemoryTypeFilter::PREFER_HOST
-                            | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-                        ..Default::default()
-                    },
-                    pose.iter().map(|pose| pose.to_homogeneous()),
-                )
-                .unwrap();
-                let vertex_count = vertex.positions.len() as u32;
-                let vertex_uniform = self.uniform_buffer.allocate_sized().unwrap();
-                *vertex_uniform.write().unwrap() =
-                    textured_metal_animated_vertex_shader::UniformBufferObject {
-                        view_proj,
-                        light_position: light_position.into(),
-                        camera_position,
-                        transform_length: pose_buffer.len() as u32 / instance_count,
-                    };
-                let fragment_uniform = self.uniform_buffer.allocate_sized().unwrap();
-                *fragment_uniform.write().unwrap() =
-                    textured_metal_fragment_shader::UniformBufferObject {
-                        color: pbr.color,
-                        metalness: pbr.metalness,
-                        roughness: pbr.roughness,
-                    };
-                let layout = self
-                    .pipelines
-                    .textured_metal_animated
-                    .layout()
-                    .set_layouts()
-                    .first()
-                    .unwrap();
-                let descriptor_set = PersistentDescriptorSet::new(
-                    &self.allocators.descriptor_set,
-                    layout.clone(),
-                    [
-                        WriteDescriptorSet::buffer(0, vertex_uniform),
-                        WriteDescriptorSet::buffer(1, fragment_uniform),
-                        WriteDescriptorSet::buffer(2, pose_buffer),
-                        WriteDescriptorSet::image_view_sampler(
-                            3,
-                            texture.image.clone(),
-                            self.sampler.clone(),
-                        ),
-                        WriteDescriptorSet::image_view_sampler(
-                            4,
-                            texture_metal.image.clone(),
-                            self.sampler.clone(),
-                        ),
-                    ],
-                    [],
-                )
-                .unwrap();
-                builder
-                    .bind_pipeline_graphics(self.pipelines.textured_metal_animated.clone())
-                    .unwrap()
-                    .bind_descriptor_sets(
-                        PipelineBindPoint::Graphics,
-                        self.pipelines.textured_metal_animated.layout().clone(),
-                        0,
-                        descriptor_set,
-                    )
-                    .unwrap()
-                    .bind_vertex_buffers(
-                        0,
-                        (
-                            vertex.positions.clone(),
-                            vertex.normals.clone(),
-                            item_pos,
-                            primitive.skin.weights.clone(),
-                            primitive.skin.joints.clone(),
-                            texture.coordinates.clone(),
-                            texture_metal.coordinates.clone(),
-                        ),
-                    )
-                    .unwrap()
-                    .draw(vertex_count, instance_count, 0, 0)
-                    .unwrap();
-            }
-            Primitive::TexturedNormal(vertex, texture, texture_metal, texture_normal, pbr) => {
-                let pose_buffer = Buffer::from_iter(
-                    self.allocators.memory.clone(),
-                    BufferCreateInfo {
-                        usage: BufferUsage::STORAGE_BUFFER,
-                        ..Default::default()
-                    },
-                    AllocationCreateInfo {
-                        memory_type_filter: MemoryTypeFilter::PREFER_HOST
-                            | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-                        ..Default::default()
-                    },
-                    pose.iter().map(|pose| pose.to_homogeneous()),
-                )
-                .unwrap();
-                let vertex_count = vertex.positions.len() as u32;
-                let vertex_uniform = self.uniform_buffer.allocate_sized().unwrap();
-                *vertex_uniform.write().unwrap() =
-                    textured_normal_animated_vertex_shader::UniformBufferObject {
-                        view_proj,
-                        light_position: light_position.into(),
-                        camera_position,
-                        transform_length: pose_buffer.len() as u32 / instance_count,
-                    };
-                let fragment_uniform = self.uniform_buffer.allocate_sized().unwrap();
-                *fragment_uniform.write().unwrap() =
-                    textured_normal_fragment_shader::UniformBufferObject {
-                        color: pbr.color,
-                        metalness: pbr.metalness,
-                        roughness: pbr.roughness,
-                    };
-                let layout = self
-                    .pipelines
-                    .textured_normal_animated
-                    .layout()
-                    .set_layouts()
-                    .first()
-                    .unwrap();
-                let descriptor_set = PersistentDescriptorSet::new(
-                    &self.allocators.descriptor_set,
-                    layout.clone(),
-                    [
-                        WriteDescriptorSet::buffer(0, vertex_uniform),
-                        WriteDescriptorSet::buffer(1, fragment_uniform),
-                        WriteDescriptorSet::buffer(2, pose_buffer),
-                        WriteDescriptorSet::image_view_sampler(
-                            3,
-                            texture.image.clone(),
-                            self.sampler.clone(),
-                        ),
-                        WriteDescriptorSet::image_view_sampler(
-                            4,
-                            texture_metal.image.clone(),
-                            self.sampler.clone(),
-                        ),
-                        WriteDescriptorSet::image_view_sampler(
-                            5,
-                            texture_normal.texture.image.clone(),
-                            self.sampler.clone(),
-                        ),
-                    ],
-                    [],
-                )
-                .unwrap();
-                builder
-                    .bind_pipeline_graphics(self.pipelines.textured_normal_animated.clone())
-                    .unwrap()
-                    .bind_descriptor_sets(
-                        PipelineBindPoint::Graphics,
-                        self.pipelines.textured_normal_animated.layout().clone(),
-                        0,
-                        descriptor_set,
-                    )
-                    .unwrap()
-                    .bind_vertex_buffers(
-                        0,
-                        (
-                            vertex.positions.clone(),
-                            vertex.normals.clone(),
-                            item_pos,
-                            primitive.skin.weights.clone(),
-                            primitive.skin.joints.clone(),
-                            texture.coordinates.clone(),
-                            texture_metal.coordinates.clone(),
-                            texture_normal.texture.coordinates.clone(),
-                            texture_normal.tangents.clone(),
-                        ),
-                    )
-                    .unwrap()
-                    .draw(vertex_count, instance_count, 0, 0)
-                    .unwrap();
-            }
-        }
+        let pose_buffer = Buffer::from_iter(
+            self.allocators.memory.clone(),
+            BufferCreateInfo {
+                usage: BufferUsage::STORAGE_BUFFER,
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                ..Default::default()
+            },
+            pose.iter().map(|pose| pose.to_homogeneous()),
+        )
+        .unwrap();
+        let vertex_count = primitive.primitive.vertex.positions.len() as u32;
+        let vertex_uniform = self.uniform_buffer.allocate_sized().unwrap();
+        *vertex_uniform.write().unwrap() = animated_vertex_shader::UniformBufferObject {
+            view_proj,
+            light_position: light_position.into(),
+            camera_position,
+            transform_length: pose_buffer.len() as u32 / instance_count,
+        };
+        let fragment_uniform = self.uniform_buffer.allocate_sized().unwrap();
+        *fragment_uniform.write().unwrap() = fragment_shader::UniformBufferObject {
+            color: primitive.primitive.pbr.color,
+            metalness: primitive.primitive.pbr.metalness,
+            roughness: primitive.primitive.pbr.roughness,
+        };
+        let layout = self
+            .pipelines
+            .graphic_animated
+            .layout()
+            .set_layouts()
+            .first()
+            .unwrap();
+        let descriptor_set = PersistentDescriptorSet::new(
+            &self.allocators.descriptor_set,
+            layout.clone(),
+            [
+                WriteDescriptorSet::buffer(0, vertex_uniform),
+                WriteDescriptorSet::buffer(1, fragment_uniform),
+                WriteDescriptorSet::buffer(2, pose_buffer),
+                WriteDescriptorSet::image_view_sampler(
+                    3,
+                    primitive.primitive.color.image.clone(),
+                    self.sampler.clone(),
+                ),
+                WriteDescriptorSet::image_view_sampler(
+                    4,
+                    primitive.primitive.metalness.image.clone(),
+                    self.sampler.clone(),
+                ),
+                WriteDescriptorSet::image_view_sampler(
+                    5,
+                    primitive.primitive.normal.image.clone(),
+                    self.sampler.clone(),
+                ),
+            ],
+            [],
+        )
+        .unwrap();
+        builder
+            .bind_pipeline_graphics(self.pipelines.graphic_animated.clone())
+            .unwrap()
+            .bind_descriptor_sets(
+                PipelineBindPoint::Graphics,
+                self.pipelines.graphic_animated.layout().clone(),
+                0,
+                descriptor_set,
+            )
+            .unwrap()
+            .bind_vertex_buffers(
+                0,
+                (
+                    primitive.primitive.vertex.positions.clone(),
+                    primitive.primitive.vertex.normals.clone(),
+                    item_pos,
+                    primitive.skin.weights.clone(),
+                    primitive.skin.joints.clone(),
+                    primitive.primitive.color.coordinates.clone(),
+                    primitive.primitive.metalness.coordinates.clone(),
+                    primitive.primitive.normal.coordinates.clone(),
+                    primitive.primitive.vertex.tangents.clone(),
+                ),
+            )
+            .unwrap()
+            .draw(vertex_count, instance_count, 0, 0)
+            .unwrap();
     }
 }
 

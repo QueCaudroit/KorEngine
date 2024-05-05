@@ -27,40 +27,21 @@ use crate::graphics::{
         TextureNormalCoord, Weight,
     },
     shaders::{
-        basic_animated_vertex_shader, basic_fragment_shader, basic_vertex_shader,
-        map_joints_shader, normal_shader, tangent_simple_shader, textured_animated_vertex_shader,
-        textured_fragment_shader, textured_metal_animated_vertex_shader,
-        textured_metal_fragment_shader, textured_metal_vertex_shader,
-        textured_normal_animated_vertex_shader, textured_normal_fragment_shader,
-        textured_normal_vertex_shader, textured_vertex_shader, unindex_uvec4_shader,
-        unindex_vec2_shader, unindex_vec3_shader, unindex_vec4_shader,
+        animated_vertex_shader, fragment_shader, map_joints_shader, normal_shader,
+        tangent_simple_shader, unindex_uvec4_shader, unindex_vec2_shader, unindex_vec3_shader,
+        unindex_vec4_shader, vertex_shader,
     },
 };
 
 struct ShaderCollection {
-    basic_vertex: Arc<ShaderModule>,
-    basic_animated_vertex: Arc<ShaderModule>,
-    basic_fragment: Arc<ShaderModule>,
-    textured_vertex: Arc<ShaderModule>,
-    textured_animated_vertex: Arc<ShaderModule>,
-    textured_fragment: Arc<ShaderModule>,
-    textured_metal_vertex: Arc<ShaderModule>,
-    textured_metal_animated_vertex: Arc<ShaderModule>,
-    textured_metal_fragment: Arc<ShaderModule>,
-    textured_normal_vertex: Arc<ShaderModule>,
-    textured_normal_animated_vertex: Arc<ShaderModule>,
-    textured_normal_fragment: Arc<ShaderModule>,
+    vertex: Arc<ShaderModule>,
+    animated_vertex: Arc<ShaderModule>,
+    fragment: Arc<ShaderModule>,
 }
 
 pub struct PipelineCollection {
-    pub basic: Arc<GraphicsPipeline>,
-    pub basic_animated: Arc<GraphicsPipeline>,
-    pub textured: Arc<GraphicsPipeline>,
-    pub textured_animated: Arc<GraphicsPipeline>,
-    pub textured_metal: Arc<GraphicsPipeline>,
-    pub textured_metal_animated: Arc<GraphicsPipeline>,
-    pub textured_normal: Arc<GraphicsPipeline>,
-    pub textured_normal_animated: Arc<GraphicsPipeline>,
+    pub graphic: Arc<GraphicsPipeline>,
+    pub graphic_animated: Arc<GraphicsPipeline>,
     pub unindex_uvec4: Arc<ComputePipeline>,
     pub unindex_vec4: Arc<ComputePipeline>,
     pub unindex_vec3: Arc<ComputePipeline>,
@@ -73,119 +54,14 @@ pub struct PipelineCollection {
 
 impl PipelineCollection {
     pub fn init(device: Arc<Device>, render_pass: Arc<RenderPass>, dimensions: &[u32]) -> Self {
-        let basic_vertex =
-            basic_vertex_shader::load(device.clone()).expect("failed to create shader module");
-        let basic_animated_vertex = basic_animated_vertex_shader::load(device.clone())
-            .expect("failed to create shader module");
-        let basic_fragment =
-            basic_fragment_shader::load(device.clone()).expect("failed to create shader module");
-        let textured_vertex =
-            textured_vertex_shader::load(device.clone()).expect("failed to create shader module");
-        let textured_animated_vertex = textured_animated_vertex_shader::load(device.clone())
-            .expect("failed to create shader module");
-        let textured_fragment =
-            textured_fragment_shader::load(device.clone()).expect("failed to create shader module");
-        let textured_metal_vertex = textured_metal_vertex_shader::load(device.clone())
-            .expect("failed to create shader module");
-        let textured_metal_animated_vertex =
-            textured_metal_animated_vertex_shader::load(device.clone())
-                .expect("failed to create shader module");
-        let textured_metal_fragment = textured_metal_fragment_shader::load(device.clone())
-            .expect("failed to create shader module");
-        let textured_normal_vertex = textured_normal_vertex_shader::load(device.clone())
-            .expect("failed to create shader module");
-        let textured_normal_animated_vertex =
-            textured_normal_animated_vertex_shader::load(device.clone())
-                .expect("failed to create shader module");
-        let textured_normal_fragment = textured_normal_fragment_shader::load(device.clone())
-            .expect("failed to create shader module");
-        let basic = build_graphics_pipeline(
+        let vertex = vertex_shader::load(device.clone()).expect("failed to create shader module");
+        let animated_vertex =
+            animated_vertex_shader::load(device.clone()).expect("failed to create shader module");
+        let fragment =
+            fragment_shader::load(device.clone()).expect("failed to create shader module");
+        let graphic = build_graphics_pipeline(
             device.clone(),
-            basic_vertex.entry_point("main").unwrap(),
-            &[
-                Position::per_vertex(),
-                Normal::per_vertex(),
-                Model::per_instance(),
-            ],
-            basic_fragment.entry_point("main").unwrap(),
-            render_pass.clone(),
-            dimensions,
-        );
-        let basic_animated = build_graphics_pipeline(
-            device.clone(),
-            basic_animated_vertex.entry_point("main").unwrap(),
-            &[
-                Position::per_vertex(),
-                Normal::per_vertex(),
-                Model::per_instance(),
-                Weight::per_vertex(),
-                Joint::per_vertex(),
-            ],
-            basic_fragment.entry_point("main").unwrap(),
-            render_pass.clone(),
-            dimensions,
-        );
-        let textured = build_graphics_pipeline(
-            device.clone(),
-            textured_vertex.entry_point("main").unwrap(),
-            &[
-                Position::per_vertex(),
-                Normal::per_vertex(),
-                Model::per_instance(),
-                TextureCoord::per_vertex(),
-            ],
-            textured_fragment.entry_point("main").unwrap(),
-            render_pass.clone(),
-            dimensions,
-        );
-        let textured_animated = build_graphics_pipeline(
-            device.clone(),
-            textured_animated_vertex.entry_point("main").unwrap(),
-            &[
-                Position::per_vertex(),
-                Normal::per_vertex(),
-                Model::per_instance(),
-                Weight::per_vertex(),
-                Joint::per_vertex(),
-                TextureCoord::per_vertex(),
-            ],
-            textured_fragment.entry_point("main").unwrap(),
-            render_pass.clone(),
-            dimensions,
-        );
-        let textured_metal = build_graphics_pipeline(
-            device.clone(),
-            textured_metal_vertex.entry_point("main").unwrap(),
-            &[
-                Position::per_vertex(),
-                Normal::per_vertex(),
-                Model::per_instance(),
-                TextureCoord::per_vertex(),
-                TextureMetalCoord::per_vertex(),
-            ],
-            textured_metal_fragment.entry_point("main").unwrap(),
-            render_pass.clone(),
-            dimensions,
-        );
-        let textured_metal_animated = build_graphics_pipeline(
-            device.clone(),
-            textured_metal_animated_vertex.entry_point("main").unwrap(),
-            &[
-                Position::per_vertex(),
-                Normal::per_vertex(),
-                Model::per_instance(),
-                Weight::per_vertex(),
-                Joint::per_vertex(),
-                TextureCoord::per_vertex(),
-                TextureMetalCoord::per_vertex(),
-            ],
-            textured_metal_fragment.entry_point("main").unwrap(),
-            render_pass.clone(),
-            dimensions,
-        );
-        let textured_normal = build_graphics_pipeline(
-            device.clone(),
-            textured_normal_vertex.entry_point("main").unwrap(),
+            vertex.entry_point("main").unwrap(),
             &[
                 Position::per_vertex(),
                 Normal::per_vertex(),
@@ -195,13 +71,13 @@ impl PipelineCollection {
                 TextureNormalCoord::per_vertex(),
                 Tangent::per_vertex(),
             ],
-            textured_normal_fragment.entry_point("main").unwrap(),
+            fragment.entry_point("main").unwrap(),
             render_pass.clone(),
             dimensions,
         );
-        let textured_normal_animated = build_graphics_pipeline(
+        let graphic_animated = build_graphics_pipeline(
             device.clone(),
-            textured_normal_animated_vertex.entry_point("main").unwrap(),
+            animated_vertex.entry_point("main").unwrap(),
             &[
                 Position::per_vertex(),
                 Normal::per_vertex(),
@@ -213,7 +89,7 @@ impl PipelineCollection {
                 TextureNormalCoord::per_vertex(),
                 Tangent::per_vertex(),
             ],
-            textured_normal_fragment.entry_point("main").unwrap(),
+            fragment.entry_point("main").unwrap(),
             render_pass,
             dimensions,
         );
@@ -267,12 +143,6 @@ impl PipelineCollection {
                 .unwrap(),
         );
         PipelineCollection {
-            basic,
-            basic_animated,
-            textured,
-            textured_animated,
-            textured_metal,
-            textured_metal_animated,
             unindex_uvec4,
             unindex_vec4,
             unindex_vec3,
@@ -280,21 +150,12 @@ impl PipelineCollection {
             normal,
             tangent_simple,
             map_joints,
-            textured_normal,
-            textured_normal_animated,
+            graphic,
+            graphic_animated,
             shaders: ShaderCollection {
-                basic_vertex,
-                basic_animated_vertex,
-                basic_fragment,
-                textured_vertex,
-                textured_animated_vertex,
-                textured_fragment,
-                textured_metal_vertex,
-                textured_metal_animated_vertex,
-                textured_metal_fragment,
-                textured_normal_vertex,
-                textured_normal_animated_vertex,
-                textured_normal_fragment,
+                vertex,
+                animated_vertex,
+                fragment,
             },
         }
     }
@@ -305,114 +166,9 @@ impl PipelineCollection {
         render_pass: Arc<RenderPass>,
         dimensions: &[u32; 2],
     ) {
-        self.basic = build_graphics_pipeline(
+        self.graphic = build_graphics_pipeline(
             device.clone(),
-            self.shaders.basic_vertex.entry_point("main").unwrap(),
-            &[
-                Position::per_vertex(),
-                Normal::per_vertex(),
-                Model::per_instance(),
-            ],
-            self.shaders.basic_fragment.entry_point("main").unwrap(),
-            render_pass.clone(),
-            dimensions,
-        );
-        self.basic_animated = build_graphics_pipeline(
-            device.clone(),
-            self.shaders
-                .basic_animated_vertex
-                .entry_point("main")
-                .unwrap(),
-            &[
-                Position::per_vertex(),
-                Normal::per_vertex(),
-                Model::per_instance(),
-                Weight::per_vertex(),
-                Joint::per_vertex(),
-            ],
-            self.shaders.basic_fragment.entry_point("main").unwrap(),
-            render_pass.clone(),
-            dimensions,
-        );
-        self.textured = build_graphics_pipeline(
-            device.clone(),
-            self.shaders.textured_vertex.entry_point("main").unwrap(),
-            &[
-                Position::per_vertex(),
-                Normal::per_vertex(),
-                Model::per_instance(),
-                TextureCoord::per_vertex(),
-            ],
-            self.shaders.textured_fragment.entry_point("main").unwrap(),
-            render_pass.clone(),
-            dimensions,
-        );
-        self.textured_animated = build_graphics_pipeline(
-            device.clone(),
-            self.shaders
-                .textured_animated_vertex
-                .entry_point("main")
-                .unwrap(),
-            &[
-                Position::per_vertex(),
-                Normal::per_vertex(),
-                Model::per_instance(),
-                Weight::per_vertex(),
-                Joint::per_vertex(),
-                TextureCoord::per_vertex(),
-            ],
-            self.shaders.textured_fragment.entry_point("main").unwrap(),
-            render_pass.clone(),
-            dimensions,
-        );
-        self.textured_metal = build_graphics_pipeline(
-            device.clone(),
-            self.shaders
-                .textured_metal_vertex
-                .entry_point("main")
-                .unwrap(),
-            &[
-                Position::per_vertex(),
-                Normal::per_vertex(),
-                Model::per_instance(),
-                TextureCoord::per_vertex(),
-                TextureMetalCoord::per_vertex(),
-            ],
-            self.shaders
-                .textured_metal_fragment
-                .entry_point("main")
-                .unwrap(),
-            render_pass.clone(),
-            dimensions,
-        );
-        self.textured_metal_animated = build_graphics_pipeline(
-            device.clone(),
-            self.shaders
-                .textured_metal_animated_vertex
-                .entry_point("main")
-                .unwrap(),
-            &[
-                Position::per_vertex(),
-                Normal::per_vertex(),
-                Model::per_instance(),
-                Weight::per_vertex(),
-                Joint::per_vertex(),
-                TextureCoord::per_vertex(),
-                TextureMetalCoord::per_vertex(),
-            ],
-            self.shaders
-                .textured_metal_fragment
-                .entry_point("main")
-                .unwrap(),
-            render_pass.clone(),
-            dimensions,
-        );
-        self.textured_normal = build_graphics_pipeline(
-            device.clone(),
-            self.shaders
-                .textured_normal_vertex
-                .entry_point("main")
-                .unwrap(),
+            self.shaders.vertex.entry_point("main").unwrap(),
             &[
                 Position::per_vertex(),
                 Normal::per_vertex(),
@@ -422,19 +178,13 @@ impl PipelineCollection {
                 TextureNormalCoord::per_vertex(),
                 Tangent::per_vertex(),
             ],
-            self.shaders
-                .textured_normal_fragment
-                .entry_point("main")
-                .unwrap(),
+            self.shaders.fragment.entry_point("main").unwrap(),
             render_pass.clone(),
             dimensions,
         );
-        self.textured_normal_animated = build_graphics_pipeline(
+        self.graphic_animated = build_graphics_pipeline(
             device.clone(),
-            self.shaders
-                .textured_normal_animated_vertex
-                .entry_point("main")
-                .unwrap(),
+            self.shaders.animated_vertex.entry_point("main").unwrap(),
             &[
                 Position::per_vertex(),
                 Normal::per_vertex(),
@@ -446,10 +196,7 @@ impl PipelineCollection {
                 TextureNormalCoord::per_vertex(),
                 Tangent::per_vertex(),
             ],
-            self.shaders
-                .textured_normal_fragment
-                .entry_point("main")
-                .unwrap(),
+            self.shaders.fragment.entry_point("main").unwrap(),
             render_pass,
             dimensions,
         );

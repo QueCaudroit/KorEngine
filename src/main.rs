@@ -3,7 +3,7 @@ use std::{f32::consts::TAU, time::Instant};
 use winit::{event::VirtualKeyCode, event_loop::EventLoop, window::Icon, window::WindowBuilder};
 
 use kor_engine::{
-    geometry::Transform, graphics::load_gltf::Asset, input::Input, run, DisplayRequest, Drawer,
+    geometry::Transform, graphics::engine::Asset, input::Input, run, DisplayRequest, Drawer,
     GameScene, GameSceneState, Loader,
 };
 

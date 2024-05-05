@@ -28,32 +28,13 @@ use crate::{
     geometry::{Interpolable, Transform},
     graphics::{
         engine::{
-            BaseVertex, Engine, Joint, Normal, NormalTexture, PBRFactors, Position, Skin, Texture,
-            TextureCoord, Weight,
+            AnimatedPrimitive, Asset, BaseVertex, Engine, Joint, Normal, PBRFactors, Position,
+            Primitive, Skin, Tangent, Texture, TextureCoord, Weight,
         },
         format_converter::{color_texture, metal_roughness},
     },
     Loader,
 };
-
-use super::engine::Tangent;
-
-pub enum Asset {
-    Animated(Vec<AnimatedPrimitive>, Animator),
-    Still(Vec<Primitive>),
-}
-
-pub struct AnimatedPrimitive {
-    pub primitive: Primitive,
-    pub skin: Skin,
-}
-
-pub enum Primitive {
-    Basic(BaseVertex, PBRFactors),
-    Textured(BaseVertex, Texture, PBRFactors),
-    TexturedMetal(BaseVertex, Texture, Texture, PBRFactors),
-    TexturedNormal(BaseVertex, Texture, Texture, NormalTexture, PBRFactors),
-}
 
 impl Loader for Engine {
     fn load(&mut self, filename: &str, node_name: &str) -> Asset {
@@ -106,8 +87,7 @@ impl Engine {
     ) -> AnimatedPrimitive {
         let reader = primitive.reader(|buffer| Some(&gltf_buffers[buffer.index()]));
         let index_buffer_option = self.load_index_buffer(&reader);
-        let vertex = self.load_base_vertex(&reader, &index_buffer_option);
-        let vertex_len = vertex.positions.len();
+        let vertex_len = self.get_vertex_count(&reader);
         let skin = self.load_joints(&reader, &index_buffer_option, vertex_len, mapping);
         let primitive = self.load_still_primitive(primitive, gltf_buffers, gltf_images);
         AnimatedPrimitive { skin, primitive }
@@ -121,118 +101,89 @@ impl Engine {
     ) -> Primitive {
         let reader = primitive.reader(|buffer| Some(&gltf_buffers[buffer.index()]));
         let index_buffer_option = self.load_index_buffer(&reader);
-        let vertex = self.load_base_vertex(&reader, &index_buffer_option);
-        let vertex_len = vertex.positions.len();
+        let vertex_len = self.get_vertex_count(&reader);
         let pbr_gltf = primitive.material().pbr_metallic_roughness();
         let pbr = load_pbr_factors(primitive);
-        let texture_option = pbr_gltf.base_color_texture();
-        let metal_texture_option = pbr_gltf.metallic_roughness_texture();
-        let normal_texture_option = primitive.material().normal_texture();
-        match (
-            &texture_option,
-            &metal_texture_option,
-            &normal_texture_option,
-        ) {
-            (None, None, None) => Primitive::Basic(vertex, pbr),
-            (Some(texture_info), None, None) => {
-                let texture = Texture {
-                    coordinates: self.load_texture_coords(
-                        &reader,
-                        &texture_info,
-                        vertex.positions.len(),
-                        &index_buffer_option,
-                    ),
-                    image: self.load_color_image(gltf_images, &texture_info),
-                };
-                Primitive::Textured(vertex, texture, pbr)
-            }
-            (_, Some(metal_texture_info), None) => {
-                let texture = match texture_option {
-                    Some(texture_info) => Texture {
-                        coordinates: self.load_texture_coords(
-                            &reader,
-                            &texture_info,
-                            vertex.positions.len(),
-                            &index_buffer_option,
-                        ),
-                        image: self.load_color_image(gltf_images, &texture_info),
-                    },
-                    None => self.load_default_color_texture(vertex_len),
-                };
-                let texture_metal = Texture {
-                    coordinates: self.load_texture_coords(
-                        &reader,
-                        &metal_texture_info,
-                        vertex.positions.len(),
-                        &index_buffer_option,
-                    ),
-                    image: self.load_metal_image(gltf_images, &metal_texture_info),
-                };
-                Primitive::TexturedMetal(vertex, texture, texture_metal, pbr)
-            }
-            (_, _, Some(normal_texture_info)) => {
-                let texture = match texture_option {
-                    Some(texture_info) => Texture {
-                        coordinates: self.load_texture_coords(
-                            &reader,
-                            &texture_info,
-                            vertex.positions.len(),
-                            &index_buffer_option,
-                        ),
-                        image: self.load_color_image(gltf_images, &texture_info),
-                    },
-                    None => self.load_default_color_texture(vertex_len),
-                };
-                let texture_metal = match metal_texture_option {
-                    Some(texture_info) => Texture {
-                        coordinates: self.load_texture_coords(
-                            &reader,
-                            &texture_info,
-                            vertex.positions.len(),
-                            &index_buffer_option,
-                        ),
-                        image: self.load_metal_image(gltf_images, &texture_info),
-                    },
-                    None => self.load_default_metal_texture(vertex_len),
-                };
+        let color = match pbr_gltf.base_color_texture() {
+            Some(texture_info) => Texture {
+                coordinates: self.load_texture_coords(
+                    &reader,
+                    &texture_info,
+                    vertex_len,
+                    &index_buffer_option,
+                ),
+                image: self.load_color_image(gltf_images, &texture_info),
+            },
+            None => self.load_default_color_texture(vertex_len),
+        };
+        let metalness = match pbr_gltf.metallic_roughness_texture() {
+            Some(texture_info) => Texture {
+                coordinates: self.load_texture_coords(
+                    &reader,
+                    &texture_info,
+                    vertex_len,
+                    &index_buffer_option,
+                ),
+                image: self.load_metal_image(gltf_images, &texture_info),
+            },
+            None => self.load_default_metal_texture(vertex_len),
+        };
+        let normal = match primitive.material().normal_texture() {
+            Some(normal_texture_info) => {
                 let normal_tex_coords = self.load_normal_texture_coords(
                     &reader,
                     &normal_texture_info,
-                    vertex.positions.len(),
+                    vertex_len,
                     &index_buffer_option,
                 );
-                let tangents =
-                    self.load_tangent(&reader, &vertex, &normal_tex_coords, &index_buffer_option);
-                let texture_normal = Texture {
+                Texture {
                     coordinates: normal_tex_coords,
                     image: self.load_normal_image(gltf_images, &normal_texture_info),
-                };
-                Primitive::TexturedNormal(
-                    vertex,
-                    texture,
-                    texture_metal,
-                    NormalTexture {
-                        texture: texture_normal,
-                        tangents,
-                    },
-                    pbr,
-                )
+                }
             }
+            None => self.load_default_normal_texture(vertex_len),
+        };
+        let vertex = self.load_base_vertex(&reader, &index_buffer_option, &normal.coordinates);
+        Primitive {
+            vertex,
+            color,
+            metalness,
+            normal,
+            pbr,
         }
     }
 }
 
 impl<'a, 's> Engine {
+    fn get_vertex_count(
+        &self,
+        reader: &Reader<'a, 's, impl Clone + Fn(gltf::Buffer<'a>) -> Option<&'s [u8]>>,
+    ) -> u64 {
+        let Some(index_buffer) = reader.read_indices() else {
+            return reader.read_positions().unwrap().len() as u64;
+        };
+        index_buffer.into_u32().len() as u64
+    }
+
     fn load_base_vertex(
         &self,
         reader: &Reader<'a, 's, impl Clone + Fn(gltf::Buffer<'a>) -> Option<&'s [u8]>>,
         index_buffer_option: &Option<Subbuffer<[u32]>>,
+        normal_tex_coords: &Subbuffer<[TextureCoord]>,
     ) -> BaseVertex {
-        let vertex_buffer = self.load_vertex(reader, index_buffer_option);
-        let normal_buffer = self.load_normal(reader, &vertex_buffer, index_buffer_option);
+        let positions = self.load_vertex(reader, index_buffer_option);
+        let normals = self.load_normal(reader, &positions, index_buffer_option);
+        let tangents = self.load_tangent(
+            reader,
+            &positions,
+            &normals,
+            normal_tex_coords,
+            index_buffer_option,
+        );
         BaseVertex {
-            positions: vertex_buffer,
-            normals: normal_buffer,
+            positions,
+            normals,
+            tangents,
         }
     }
 
@@ -557,11 +508,12 @@ impl<'a, 's> Engine {
     fn load_tangent(
         &self,
         reader: &Reader<'a, 's, impl Clone + Fn(gltf::Buffer<'a>) -> Option<&'s [u8]>>,
-        vertex: &BaseVertex,
+        vertex_buffer: &Subbuffer<[Position]>,
+        normal_buffer: &Subbuffer<[Normal]>,
         texture_coord: &Subbuffer<[TextureCoord]>,
         index_buffer_option: &Option<Subbuffer<[u32]>>,
     ) -> Subbuffer<[Tangent]> {
-        let vertex_len = vertex.positions.len();
+        let vertex_len = vertex_buffer.len();
         let tangent_buffer_option = reader.read_tangents().map(|buffer| {
             Buffer::from_iter(
                 self.allocators.memory.clone(),
@@ -653,9 +605,9 @@ impl<'a, 's> Engine {
                 &self.allocators.descriptor_set,
                 layout.clone(),
                 [
-                    WriteDescriptorSet::buffer(0, vertex.positions.clone()),
+                    WriteDescriptorSet::buffer(0, vertex_buffer.clone()),
                     WriteDescriptorSet::buffer(1, texture_coord.clone()),
-                    WriteDescriptorSet::buffer(2, vertex.normals.clone()),
+                    WriteDescriptorSet::buffer(2, normal_buffer.clone()),
                     WriteDescriptorSet::buffer(3, tangent_buffer.clone()),
                 ],
                 [],
@@ -920,7 +872,10 @@ impl<'a, 's> Engine {
     }
 
     fn load_default_normal_texture(&self, vertex_len: u64) -> Texture {
-        let image = self.load_default_texture_image([0, 0, u8::MAX, 0], Format::R8G8B8A8_UNORM);
+        let image = self.load_default_texture_image(
+            [u8::MAX / 2, u8::MAX / 2, u8::MAX, 0],
+            Format::R8G8B8A8_UNORM,
+        );
         let coordinates = self.load_default_texture_coord(vertex_len);
         Texture { coordinates, image }
     }

@@ -1,4 +1,4 @@
-use graphics::load_gltf::Asset;
+use graphics::engine::Asset;
 use input::Input;
 use std::{sync::Arc, time::Instant};
 use vulkano::{instance::InstanceExtensions, swapchain::Surface};
