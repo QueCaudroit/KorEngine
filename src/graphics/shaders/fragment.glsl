@@ -13,10 +13,10 @@ layout(binding = 5) uniform sampler2D tex_normal;
 layout(location = 0) in vec3 light_direction;
 layout(location = 1) in vec3 camera_direction;
 layout(location = 2) in vec3 normal_direction;
-layout(location = 3) in vec2 tex_coords;
-layout(location = 4) in vec2 tex_metal_coords;
-layout(location = 5) in vec2 tex_normal_coords;
-layout(location = 6) in vec3 tangent_direction;
+layout(location = 3) in vec3 tangent_direction;
+layout(location = 4) in vec2 tex_coords;
+layout(location = 5) in vec2 tex_metal_coords;
+layout(location = 6) in vec2 tex_normal_coords;
 
 layout(location = 0) out vec4 f_color;
 
@@ -27,7 +27,6 @@ void main() {
     vec3 bitangent = cross(normal_direction, tangent_direction);
     vec4 tex_normal = texture(tex_normal, tex_normal_coords) * 2.0 - 1.0;
     vec3 normal = normalize(tex_normal.r * tangent_direction + tex_normal.g * bitangent + tex_normal.b * normal_direction);
-    //normal = normal_direction;
     vec4 tex_color = texture(tex, tex_coords) * ubo.color;
     vec4 tex_metal = texture(tex_metal, tex_metal_coords);
     float metalness = ubo.metalness * tex_metal.x;

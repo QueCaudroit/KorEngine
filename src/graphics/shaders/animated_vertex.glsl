@@ -13,22 +13,22 @@ layout(binding = 2) buffer Transforms {
 
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec3 normal;
-layout(location = 2) in mat4 model;
-layout(location = 6) in vec4 weights;
-layout(location = 7) in uvec4 joints;
-layout(location = 8) in vec2 tex_coords_in;
-layout(location = 9) in vec2 tex_metal_coords_in;
-layout(location = 10) in vec2 tex_normal_coords_in;
-layout(location = 11) in vec3 tangent;
+layout(location = 2) in vec3 tangent;
+layout(location = 3) in mat4 model;
+layout(location = 7) in vec4 weights;
+layout(location = 8) in uvec4 joints;
+layout(location = 9) in vec2 tex_coords_in;
+layout(location = 10) in vec2 tex_metal_coords_in;
+layout(location = 11) in vec2 tex_normal_coords_in;
 
 
 layout(location = 0) out vec3 light_direction;
 layout(location = 1) out vec3 camera_direction;
 layout(location = 2) out vec3 normal_direction;
-layout(location = 3) out vec2 tex_coords;
-layout(location = 4) out vec2 tex_metal_coords;
-layout(location = 5) out vec2 tex_normal_coords;
-layout(location = 6) out vec3 tangent_direction;
+layout(location = 3) out vec3 tangent_direction;
+layout(location = 4) out vec2 tex_coords;
+layout(location = 5) out vec2 tex_metal_coords;
+layout(location = 6) out vec2 tex_normal_coords;
 
 const float lambertian_diffuse = 0.31830988618; // 1/pi
 

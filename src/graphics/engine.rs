@@ -357,11 +357,11 @@ impl Engine {
                 (
                     primitive.vertex.positions.clone(),
                     primitive.vertex.normals.clone(),
+                    primitive.vertex.tangents.clone(),
                     item_pos,
                     primitive.color.coordinates.clone(),
                     primitive.metalness.coordinates.clone(),
                     primitive.normal.coordinates.clone(),
-                    primitive.vertex.tangents.clone(),
                 ),
             )
             .unwrap()
@@ -469,13 +469,13 @@ impl Engine {
                 (
                     primitive.primitive.vertex.positions.clone(),
                     primitive.primitive.vertex.normals.clone(),
+                    primitive.primitive.vertex.tangents.clone(),
                     item_pos,
                     primitive.skin.weights.clone(),
                     primitive.skin.joints.clone(),
                     primitive.primitive.color.coordinates.clone(),
                     primitive.primitive.metalness.coordinates.clone(),
                     primitive.primitive.normal.coordinates.clone(),
-                    primitive.primitive.vertex.tangents.clone(),
                 ),
             )
             .unwrap()
